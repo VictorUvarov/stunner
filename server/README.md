@@ -55,20 +55,33 @@ must prove knowledge of a username/password using
 long-term credentials:
 
 ```go
-server.Credentials = server.NewAuth("example.org", map[string]string{"alice": "s3cret"})
+auth, err := server.NewAuth("example.org", map[string]string{"alice": "s3cret"})
+server.Credentials = auth
 ```
 
 The exchange is challenge/response. A first, unauthenticated request draws
-a 401 carrying the realm and a nonce; the client retries with USERNAME,
-REALM, NONCE, and a MESSAGE-INTEGRITY (or MESSAGE-INTEGRITY-SHA256) HMAC
-keyed with MD5(user:realm:password). Expired nonces draw a 438 with a fresh
-one; a bad password draws another 401. Successful responses are signed with
-the same key and hash variant the client used.
+a 401 carrying the realm, a nonce, and the password algorithms the server
+offers (SHA-256 preferred, MD5 for legacy clients). The client retries with
+USERNAME (or USERHASH, for username anonymity), REALM, NONCE, its algorithm
+choice, and a MESSAGE-INTEGRITY(-SHA256) HMAC keyed by hash(user:realm:
+password). Expired nonces draw a 438 with a fresh one — but only after the
+credentials check out; a bad password always draws another 401. Responses
+are signed with MESSAGE-INTEGRITY-SHA256 when the client negotiated an
+algorithm, legacy MESSAGE-INTEGRITY otherwise, exactly as
+[§9.2.4](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2.4)
+prescribes.
+
+Bid-down protection: every nonce starts with the RFC's "nonce cookie" —
+a magic string plus feature bits covering password-algorithm negotiation
+and username anonymity. An on-path attacker who strips those bits to force
+weaker auth invalidates the nonce, and the downgrade dies with a 438.
 
 Nonces are stateless: an expiry timestamp plus an HMAC under a per-process
 random secret (5 minute lifetime). Nothing is stored per client, so the
 nonce table can't be flooded; a server restart just costs clients one extra
-438 round trip.
+438 round trip. Realm, usernames, and passwords are run through the
+OpaqueString profile ([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265))
+at setup, and only derived keys are kept in memory — raw passwords are not.
 
 ## TCP differences
 

@@ -41,7 +41,12 @@ func main() {
 		os.Exit(1)
 	}
 	if *realm != "" {
-		server.Credentials = server.NewAuth(*realm, users)
+		auth, err := server.NewAuth(*realm, users)
+		if err != nil {
+			slog.Error("bad credentials", "err", err)
+			os.Exit(1)
+		}
+		server.Credentials = auth
 		slog.Info("long-term credential auth enabled", "realm", *realm, "users", len(users))
 	}
 	if *verbose {

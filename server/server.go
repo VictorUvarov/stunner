@@ -24,6 +24,8 @@ var ignorable = map[uint16]bool{
 	stunmsg.AttrMessageIntegritySHA256: true,
 	stunmsg.AttrRealm:                  true,
 	stunmsg.AttrNonce:                  true,
+	stunmsg.AttrPasswordAlgorithm:      true,
+	stunmsg.AttrUserhash:               true,
 }
 
 // Serve answers Binding Requests on conn until it is closed, replying to
@@ -103,8 +105,9 @@ func respond(req *stunmsg.Message, src netip.AddrPort, ignore map[uint16]bool) *
 }
 
 // seal appends the trailing attributes every response carries and marshals:
-// SOFTWARE, then — for authenticated exchanges — MESSAGE-INTEGRITY(-SHA256)
-// keyed with key and matching the variant the client used (RFC 8489 §9.2.4),
+// SOFTWARE, then — for authenticated exchanges — the integrity HMAC keyed
+// with key (MESSAGE-INTEGRITY-SHA256 when the client negotiated a password
+// algorithm, legacy MESSAGE-INTEGRITY otherwise, per RFC 8489 §9.2.4),
 // then FINGERPRINT, which must be last.
 func seal(resp *stunmsg.Message, key []byte, sha2 bool) []byte {
 	resp.AddSoftware(Software)

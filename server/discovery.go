@@ -28,6 +28,8 @@ var discoveryIgnorable = map[uint16]bool{
 	stunmsg.AttrMessageIntegritySHA256: true,
 	stunmsg.AttrRealm:                  true,
 	stunmsg.AttrNonce:                  true,
+	stunmsg.AttrPasswordAlgorithm:      true,
+	stunmsg.AttrUserhash:               true,
 	stunmsg.AttrChangeRequest:          true,
 }
 

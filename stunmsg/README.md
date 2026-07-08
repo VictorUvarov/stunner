@@ -41,8 +41,12 @@ out := resp.Marshal()
 ```
 
 Attributes are exposed as raw `[]Attr` (type + value bytes); typed helpers
-exist only for the attributes a Binding server actually produces or reads:
-XOR-MAPPED-ADDRESS, ERROR-CODE, UNKNOWN-ATTRIBUTES, SOFTWARE, FINGERPRINT.
+exist only for the attributes the server actually produces or reads:
+XOR-MAPPED-ADDRESS, ERROR-CODE, UNKNOWN-ATTRIBUTES, SOFTWARE, FINGERPRINT,
+and the long-term-credential set — MESSAGE-INTEGRITY(-SHA256) add/verify,
+key derivation (`LongTermKey`, `LongTermKeySHA256`), `Userhash`, and the
+PASSWORD-ALGORITHM(S) codec. Key-derivation inputs must already be
+OpaqueString-processed (RFC 8265); this package does no string preparation.
 
 ## How we know it's correct
 
@@ -50,7 +54,10 @@ The IETF published [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769),
 a set of official example messages with every byte spelled out.
 `stunmsg_test.go` embeds them byte-for-byte and checks that this package
 parses them, decodes the right addresses, and validates their checksums —
-plus round-trip and garbage-rejection tests of our own.
+plus round-trip and garbage-rejection tests of our own. The long-term-auth
+code is additionally checked against [RFC 8489 Appendix B.1](https://www.rfc-editor.org/rfc/rfc8489#appendix-B.1)
+(as corrected by [verified erratum 6268](https://www.rfc-editor.org/errata/eid6268)),
+which covers USERHASH, the nonce cookie, and MESSAGE-INTEGRITY-SHA256.
 
 ## Gotchas encoded here
 

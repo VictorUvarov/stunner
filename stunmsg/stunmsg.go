@@ -29,11 +29,23 @@ const (
 	AttrRealm                  = 0x0014
 	AttrNonce                  = 0x0015
 	AttrMessageIntegritySHA256 = 0x001C
+	AttrPasswordAlgorithm      = 0x001D
+	AttrUserhash               = 0x001E
 	AttrXORMappedAddress       = 0x0020
+	AttrPasswordAlgorithms     = 0x8002
+	AttrAlternateDomain        = 0x8003
 	AttrSoftware               = 0x8022
+	AttrAlternateServer        = 0x8023
 	AttrFingerprint            = 0x8028
 	AttrResponseOrigin         = 0x802B
 	AttrOtherAddress           = 0x802C
+)
+
+// Password algorithm numbers (RFC 8489 §18.5), carried in the
+// PASSWORD-ALGORITHM(S) attributes.
+const (
+	PasswordAlgorithmMD5    = 0x0001
+	PasswordAlgorithmSHA256 = 0x0002
 )
 
 // CHANGE-REQUEST flag bits (RFC 5780 §7.2), in the last byte of the value.
@@ -252,6 +264,57 @@ func (m *Message) AddUnknownAttributes(types []uint16) {
 		binary.BigEndian.PutUint16(v[2*i:], t)
 	}
 	m.Add(AttrUnknownAttributes, v)
+}
+
+// AddPasswordAlgorithms appends a PASSWORD-ALGORITHMS attribute listing the
+// given algorithm numbers in preference order (RFC 8489 §14.11), each with
+// empty parameters (neither registered algorithm defines any).
+func (m *Message) AddPasswordAlgorithms(algs []uint16) {
+	v := make([]byte, 4*len(algs))
+	for i, a := range algs {
+		binary.BigEndian.PutUint16(v[4*i:], a) // parameter length stays zero
+	}
+	m.Add(AttrPasswordAlgorithms, v)
+}
+
+// PasswordAlgorithms decodes the PASSWORD-ALGORITHMS attribute into its
+// algorithm numbers, skipping the per-algorithm parameters. A missing
+// attribute yields (nil, nil); a malformed one, ErrMalformed.
+func (m *Message) PasswordAlgorithms() ([]uint16, error) {
+	v, ok := m.Get(AttrPasswordAlgorithms)
+	if !ok {
+		return nil, nil
+	}
+	var out []uint16
+	for off := 0; off < len(v); {
+		if off+4 > len(v) {
+			return nil, ErrMalformed
+		}
+		n := int(binary.BigEndian.Uint16(v[off+2 : off+4]))
+		out = append(out, binary.BigEndian.Uint16(v[off:off+2]))
+		if off += 4 + (n+3)/4*4; off > len(v) {
+			return nil, ErrMalformed
+		}
+	}
+	return out, nil
+}
+
+// AddPasswordAlgorithm appends a PASSWORD-ALGORITHM attribute (RFC 8489
+// §14.12) selecting alg, with empty parameters.
+func (m *Message) AddPasswordAlgorithm(alg uint16) {
+	v := make([]byte, 4)
+	binary.BigEndian.PutUint16(v, alg)
+	m.Add(AttrPasswordAlgorithm, v)
+}
+
+// PasswordAlgorithm decodes the PASSWORD-ALGORITHM attribute's algorithm
+// number.
+func (m *Message) PasswordAlgorithm() (uint16, bool) {
+	v, ok := m.Get(AttrPasswordAlgorithm)
+	if !ok || len(v) < 4 {
+		return 0, false
+	}
+	return binary.BigEndian.Uint16(v[:2]), true
 }
 
 // AddFingerprint appends a FINGERPRINT attribute; it must be added last.

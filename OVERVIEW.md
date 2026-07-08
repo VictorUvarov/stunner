@@ -1,8 +1,10 @@
 # Design overview
 
 Implementation notes for stund (see [README.md](README.md) for what/why).
-Built from scratch against [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489), stdlib only — `net`, `crypto`,
-`encoding/binary` cover everything STUN needs.
+Built from scratch against [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489). Stdlib except one Go-team-maintained
+dependency: `golang.org/x/text/secure/precis` for the OpaqueString profile
+([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265)) the auth spec requires — Unicode normalization is not worth
+hand-rolling.
 
 This is the living design doc. Every commit updates the **Progress log**
 below and, when the design changes, the sections above it.
@@ -33,6 +35,10 @@ parse, respond.
 
 ## Roadmap
 
+Goal: a **feature-complete STUN server** — everything in the spec,
+for learning and for production use. Nothing gets skipped permanently;
+deferred items live at the bottom of this list until they're done.
+
 1. **Message codec** — header + attribute parse/serialize, XOR-MAPPED-ADDRESS,
    ERROR-CODE, FINGERPRINT. Verified against [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) test vectors.
 2. **UDP server** — Binding Request → Binding Success Response. Malformed
@@ -48,8 +54,21 @@ parse, respond.
    MESSAGE-INTEGRITY(-SHA256) validation. Opt-in; anonymous binding stays the
    default (public STUN servers run unauthenticated — the response contains
    nothing an on-path attacker doesn't already know).~~ Done.
+6. ~~**Auth, complete** — PASSWORD-ALGORITHMS negotiation with bid-down
+   protection (nonce cookie + security-feature bits), USERHASH username
+   anonymity, truncated MESSAGE-INTEGRITY-SHA256 acceptance, OpaqueString
+   string preparation.~~ Done.
+7. **RFC 5780, complete** — PADDING and RESPONSE-PORT so clients can run
+   fragment and binding-lifetime tests.
+8. **TLS + DTLS transports** — RFC 8489 §6.2.3 (`stuns`, port 5349),
+   including the ALTERNATE-SERVER / ALTERNATE-DOMAIN redirect machinery
+   (§10, §14.9, §14.15).
+9. **Full §6 protocol conformance sweep** — walk RFC 8489 front to back
+   and close every remaining MUST/SHOULD (e.g. DNS discovery notes,
+   FINGERPRINT/demux corner cases), documenting each verdict here.
 
-Skipped deliberately: TURN relaying, TLS/DTLS transport.
+Out of scope: TURN relaying (RFC 8656 is a different protocol and a
+different threat model, not part of STUN itself).
 
 ## References
 
@@ -135,3 +154,27 @@ Skipped deliberately: TURN relaying, TLS/DTLS transport.
   are compared as raw bytes). Verified by loopback tests plus independent
   Python clients against the binary, now committed under `test/`
   (binding + auth handshake, runnable against any stund).
+- **2026-07-08** — Auth completed to full RFC 8489 (phase 6); project goal
+  restated: feature-complete STUN server, everything in the spec, for
+  learning and production. What phase 5 skipped, now in:
+  - **PASSWORD-ALGORITHMS negotiation** — challenges offer SHA-256 then
+    MD5; clients echo the list and pick one (§9.2.4's exact check order,
+    including the subtlety that a stale nonce is only reported *after*
+    the credentials verify, and that responses carry MESSAGE-INTEGRITY-
+    SHA256 only for negotiating clients — legacy ones get MESSAGE-
+    INTEGRITY even if they signed with the SHA-256 variant).
+  - **Bid-down protection** — nonces now start with the "obMatJos2"
+    cookie + base64 feature bits. Two verified errata mattered: 6290
+    (bit 0 is the *rightmost* bit, opposite of the RFC prose) and 6268
+    (the Appendix B.1 vector is wrong as printed). Our codec verifies
+    and byte-for-byte rebuilds the corrected B.1 vector.
+  - **USERHASH** — username anonymity via a SHA-256(user:realm) lookup
+    table precomputed in NewAuth.
+  - **OpaqueString (RFC 8265)** — realm/usernames/passwords prepared via
+    `x/text/secure/precis`, the one non-stdlib dep; only derived keys are
+    retained. `stunmsg` stays stdlib-only: it documents that key inputs
+    arrive pre-processed.
+  - **Truncated MESSAGE-INTEGRITY-SHA256** — verification accepts 16–32
+    bytes in multiples of 4 per §14.6 (sending stays full-length).
+  Python auth client extended with the negotiated USERHASH flow; both
+  clients pass against the binary alongside 33 Go tests.

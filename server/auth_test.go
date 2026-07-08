@@ -18,7 +18,11 @@ const (
 // duration of the test.
 func startAuthServer(t *testing.T) *net.UDPConn {
 	t.Helper()
-	Credentials = NewAuth(testRealm, map[string]string{testUser: testPass})
+	auth, err := NewAuth(testRealm, map[string]string{testUser: testPass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	Credentials = auth
 	t.Cleanup(func() { Credentials = nil })
 	return startServer(t)
 }
@@ -51,11 +55,15 @@ func challenge(t *testing.T, client *net.UDPConn) (realm, nonce []byte) {
 	if len(realm) == 0 || !ok {
 		t.Fatalf("401 missing REALM/NONCE: %v", resp)
 	}
+	if algs, err := resp.PasswordAlgorithms(); err != nil || len(algs) == 0 {
+		t.Fatalf("401 missing PASSWORD-ALGORITHMS: %v, %v", algs, err)
+	}
 	return realm, nonce
 }
 
-// signed builds an authenticated Binding Request.
-func signed(t *testing.T, realm, nonce []byte, user, pass string, sha2 bool) []byte {
+// legacyRequest builds an RFC 5389-style authenticated request: USERNAME +
+// MD5 key, no password-algorithm attributes, signed with the given variant.
+func legacyRequest(t *testing.T, realm, nonce []byte, user, pass string, sha2 bool) []byte {
 	t.Helper()
 	req := newRequest(t)
 	req.Add(stunmsg.AttrUsername, []byte(user))
@@ -67,6 +75,26 @@ func signed(t *testing.T, realm, nonce []byte, user, pass string, sha2 bool) []b
 	} else {
 		req.AddMessageIntegrity(key)
 	}
+	req.AddFingerprint()
+	return req.Marshal()
+}
+
+// negotiatedRequest builds an RFC 8489 request: echoes PASSWORD-ALGORITHMS,
+// selects SHA-256, uses USERHASH when anon is set, signs with
+// MESSAGE-INTEGRITY-SHA256 keyed by the SHA-256 derivation.
+func negotiatedRequest(t *testing.T, realm, nonce []byte, user, pass string, anon bool) []byte {
+	t.Helper()
+	req := newRequest(t)
+	if anon {
+		req.Add(stunmsg.AttrUserhash, stunmsg.Userhash(user, string(realm)))
+	} else {
+		req.Add(stunmsg.AttrUsername, []byte(user))
+	}
+	req.Add(stunmsg.AttrRealm, realm)
+	req.Add(stunmsg.AttrNonce, nonce)
+	req.AddPasswordAlgorithms([]uint16{stunmsg.PasswordAlgorithmSHA256, stunmsg.PasswordAlgorithmMD5})
+	req.AddPasswordAlgorithm(stunmsg.PasswordAlgorithmSHA256)
+	req.AddMessageIntegritySHA256(stunmsg.LongTermKeySHA256(user, string(realm), pass))
 	req.AddFingerprint()
 	return req.Marshal()
 }
@@ -83,53 +111,116 @@ func errorCode(t *testing.T, resp *stunmsg.Message) int {
 	return int(ec[2])*100 + int(ec[3])
 }
 
-func TestAuthHandshake(t *testing.T) {
+func wantSuccess(t *testing.T, raw []byte) *stunmsg.Message {
+	t.Helper()
+	resp, err := stunmsg.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v, want success", resp)
+	}
+	if _, err := resp.XORMappedAddress(); err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// Legacy clients (no password-algorithm attributes, MD5 key) must still
+// authenticate, and per §9.2.4 the response then carries legacy
+// MESSAGE-INTEGRITY — even when the request used the SHA-256 variant.
+func TestAuthLegacyHandshake(t *testing.T) {
 	for _, sha2 := range []bool{false, true} {
 		client := startAuthServer(t)
 		realm, nonce := challenge(t, client)
 		if string(realm) != testRealm {
 			t.Fatalf("realm = %q", realm)
 		}
-
-		raw := roundTripRaw(t, client, signed(t, realm, nonce, testUser, testPass, sha2))
-		resp, err := stunmsg.Parse(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if resp.Type != stunmsg.BindingSuccess {
-			t.Fatalf("sha2=%v: type = %v, want success", sha2, resp)
-		}
-		if _, err := resp.XORMappedAddress(); err != nil {
-			t.Fatal(err)
-		}
-		// The response must be integrity-protected with the same key and
-		// the same variant the client used.
-		key := stunmsg.LongTermKey(testUser, testRealm, testPass)
-		verify := stunmsg.VerifyMessageIntegrity
-		if sha2 {
-			verify = stunmsg.VerifyMessageIntegritySHA256
-		}
-		if !verify(raw, key) {
-			t.Fatalf("sha2=%v: response integrity did not verify", sha2)
+		raw := roundTripRaw(t, client, legacyRequest(t, realm, nonce, testUser, testPass, sha2))
+		wantSuccess(t, raw)
+		if !stunmsg.VerifyMessageIntegrity(raw, stunmsg.LongTermKey(testUser, testRealm, testPass)) {
+			t.Fatalf("request sha2=%v: response must carry legacy MESSAGE-INTEGRITY", sha2)
 		}
 	}
 }
 
-func TestAuthWrongPassword(t *testing.T) {
-	client := startAuthServer(t)
-	realm, nonce := challenge(t, client)
-	resp := roundTrip(t, client, signed(t, realm, nonce, testUser, "wrong", false))
-	if code := errorCode(t, resp); code != 401 {
-		t.Fatalf("error code = %d, want 401", code)
+// The full RFC 8489 flow: PASSWORD-ALGORITHMS echo, SHA-256 key, USERHASH
+// anonymity; the response must be signed with MESSAGE-INTEGRITY-SHA256.
+func TestAuthNegotiatedHandshake(t *testing.T) {
+	for _, anon := range []bool{false, true} {
+		client := startAuthServer(t)
+		realm, nonce := challenge(t, client)
+		raw := roundTripRaw(t, client, negotiatedRequest(t, realm, nonce, testUser, testPass, anon))
+		wantSuccess(t, raw)
+		if !stunmsg.VerifyMessageIntegritySHA256(raw, stunmsg.LongTermKeySHA256(testUser, testRealm, testPass)) {
+			t.Fatalf("anon=%v: response MESSAGE-INTEGRITY-SHA256 did not verify", anon)
+		}
 	}
 }
 
-func TestAuthUnknownUser(t *testing.T) {
+func TestAuthWrongCredentials(t *testing.T) {
 	client := startAuthServer(t)
 	realm, nonce := challenge(t, client)
-	resp := roundTrip(t, client, signed(t, realm, nonce, "mallory", testPass, false))
-	if code := errorCode(t, resp); code != 401 {
-		t.Fatalf("error code = %d, want 401", code)
+	for name, pkt := range map[string][]byte{
+		"wrong password": legacyRequest(t, realm, nonce, testUser, "wrong", false),
+		"unknown user":   legacyRequest(t, realm, nonce, "mallory", testPass, false),
+		"unknown userhash": negotiatedRequest(t, realm, nonce, "mallory", testPass, true),
+	} {
+		resp := roundTrip(t, client, pkt)
+		if code := errorCode(t, resp); code != 401 {
+			t.Fatalf("%s: error code = %d, want 401", name, code)
+		}
+	}
+}
+
+// §9.2.4: with the feature bit set in the echoed nonce, sending
+// PASSWORD-ALGORITHM requires a matching PASSWORD-ALGORITHMS echo.
+func TestAuthNegotiationViolationsAre400(t *testing.T) {
+	client := startAuthServer(t)
+	realm, nonce := challenge(t, client)
+
+	build := func(mutate func(*stunmsg.Message)) []byte {
+		req := newRequest(t)
+		req.Add(stunmsg.AttrUsername, []byte(testUser))
+		req.Add(stunmsg.AttrRealm, realm)
+		req.Add(stunmsg.AttrNonce, nonce)
+		mutate(req)
+		req.AddMessageIntegritySHA256(stunmsg.LongTermKeySHA256(testUser, testRealm, testPass))
+		return req.Marshal()
+	}
+	for name, pkt := range map[string][]byte{
+		"PASSWORD-ALGORITHM without echo": build(func(m *stunmsg.Message) {
+			m.AddPasswordAlgorithm(stunmsg.PasswordAlgorithmSHA256)
+		}),
+		"echo mismatch": build(func(m *stunmsg.Message) {
+			m.AddPasswordAlgorithms([]uint16{stunmsg.PasswordAlgorithmMD5})
+			m.AddPasswordAlgorithm(stunmsg.PasswordAlgorithmMD5)
+		}),
+		"chosen not in echo": build(func(m *stunmsg.Message) {
+			m.AddPasswordAlgorithms([]uint16{stunmsg.PasswordAlgorithmSHA256, stunmsg.PasswordAlgorithmMD5})
+			m.AddPasswordAlgorithm(0x7777)
+		}),
+	} {
+		resp := roundTrip(t, client, pkt)
+		if code := errorCode(t, resp); code != 400 {
+			t.Fatalf("%s: error code = %d, want 400", name, code)
+		}
+		if _, ok := resp.Get(stunmsg.AttrNonce); ok {
+			t.Fatalf("%s: 400 must not carry NONCE", name)
+		}
+	}
+}
+
+// Stripping the security-feature bits from the nonce (a bid-down attempt)
+// must invalidate it: the request authenticates but draws a 438.
+func TestAuthBidDownDetected(t *testing.T) {
+	client := startAuthServer(t)
+	realm, nonce := challenge(t, client)
+	tampered := append([]byte(nil), nonce...)
+	copy(tampered[9:13], "AAAA") // clear all feature bits
+	resp := roundTrip(t, client, legacyRequest(t, realm, tampered, testUser, testPass, false))
+	if code := errorCode(t, resp); code != 438 {
+		t.Fatalf("error code = %d, want 438", code)
 	}
 }
 
@@ -137,12 +228,19 @@ func TestAuthStaleNonce(t *testing.T) {
 	client := startAuthServer(t)
 	realm, _ := challenge(t, client)
 	expired := Credentials.nonce(time.Now().Add(-nonceTTL - time.Minute))
-	resp := roundTrip(t, client, signed(t, realm, expired, testUser, testPass, false))
+	resp := roundTrip(t, client, legacyRequest(t, realm, expired, testUser, testPass, false))
 	if code := errorCode(t, resp); code != 438 {
 		t.Fatalf("error code = %d, want 438", code)
 	}
 	if _, ok := resp.Get(stunmsg.AttrNonce); !ok {
 		t.Fatal("438 response missing fresh NONCE")
+	}
+
+	// §9.2.4 orders the integrity check before nonce validity: an expired
+	// nonce with bad credentials is a 401, not a 438.
+	resp = roundTrip(t, client, legacyRequest(t, realm, expired, testUser, "wrong", false))
+	if code := errorCode(t, resp); code != 401 {
+		t.Fatalf("expired nonce + bad password: error code = %d, want 401", code)
 	}
 }
 
