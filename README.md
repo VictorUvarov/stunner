@@ -2,9 +2,8 @@
 
 A small, fast STUN server written in Go. No dependencies, one binary.
 
-> **Status: early development.** The core works — Binding over UDP — but
-> hardening (rate limiting, TCP) is still in progress. See the
-> [progress log](OVERVIEW.md#progress-log).
+> **Status: working.** Binding over UDP and TCP with per-IP rate limiting.
+> See the [progress log](OVERVIEW.md#progress-log) for what's next.
 
 ## What is this for?
 
@@ -35,8 +34,8 @@ Stop it with Ctrl-C.
 
 ## What it will and won't do
 
-- ✅ STUN Binding over UDP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
-- ✅ TCP support and rate limiting, later
+- ✅ STUN Binding over UDP and TCP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
+- ✅ Per-IP rate limiting, on by default
 - ❌ TURN (media relaying) — different, much heavier protocol; use
   [coturn](https://github.com/coturn/coturn) if you need relaying
 

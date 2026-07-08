@@ -13,7 +13,8 @@ go build ./cmd/stund
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-addr` | `:3478` | UDP listen address |
+| `-addr` | `:3478` | listen address, used for both UDP and TCP |
+| `-tcp` | on | also serve STUN over TCP (`-tcp=false` for UDP only) |
 | `-rps` | `10` | per-IP request rate limit, with 2× burst headroom (`0` disables) |
 | `-v` | off | debug logging (logs each handled request) |
 

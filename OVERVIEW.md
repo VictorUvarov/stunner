@@ -38,8 +38,8 @@ parse, respond.
 2. **UDP server** — Binding Request → Binding Success Response. Malformed
    input is dropped silently (per RFC), unknown comprehension-required
    attributes get a 420 error response.
-3. **Hardening** — per-IP rate limiting, graceful shutdown, structured logs,
-   TCP listener.
+3. ~~**Hardening** — per-IP rate limiting, graceful shutdown, structured
+   logs, TCP listener.~~ Done.
 4. **Maybe later** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) NAT behavior discovery (needs two public IPs),
    long-term-credential auth. Only if there's a real use.
 
@@ -89,3 +89,11 @@ the response contains nothing an on-path attacker doesn't already know).
   response would spend exactly the bandwidth the limit protects. Buckets
   idle past full refill are pruned at most once a minute, under the same
   lock. Deliberately one mutex + map; shard if it ever shows in a profile.
+- **2026-07-07** — TCP listener (phase 3, part 2; phase 3 complete).
+  `ServeTCP` accepts, one goroutine per connection, multiple length-framed
+  requests per connection. Stream semantics change error handling: UDP
+  drops bad input and keeps listening, TCP must hang up because a framing
+  error loses message boundaries. 40s idle timeout, 4 KiB frame cap.
+  `stund` now listens on both transports by default (`-tcp=false` to
+  disable). Verified with loopback tests and a Python TCP client against
+  the binary.

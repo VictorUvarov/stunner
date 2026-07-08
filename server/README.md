@@ -10,15 +10,18 @@ the envelope it came in.
 
 ## API
 
-One exported entry point:
+Two entry points, one per transport:
 
 ```go
 conn, _ := net.ListenUDP("udp", addr)
-err := server.Serve(conn)   // blocks; returns nil when conn is closed
+err := server.Serve(conn)     // blocks; returns nil when conn is closed
+
+ln, _ := net.Listen("tcp", addr)
+err = server.ServeTCP(ln)     // same contract, one goroutine per connection
 ```
 
-Shutdown model: there is no Stop method — close the socket and `Serve`
-returns. That's the whole lifecycle.
+Shutdown model: there is no Stop method — close the socket/listener and the
+serve loop returns. That's the whole lifecycle.
 
 ## What it does with each packet
 
@@ -41,6 +44,15 @@ so the client can match it to what it sent.
 Replies go out the same socket the request came in on. That matters: the
 client is waiting for an answer from the exact ip:port it messaged, and its
 router will only let the reply through on that path.
+
+## TCP differences
+
+A TCP connection can carry many requests back to back — messages are framed
+by the header's length field. But a stream can't skip bad input the way UDP
+skips a bad datagram: after a framing error there's no way to find the next
+message. So on TCP, anything that would be "silence" on UDP (malformed
+message, bad checksum, oversize frame, rate-limit hit) closes the
+connection instead. Idle connections are dropped after 40s.
 
 ## Tests
 
