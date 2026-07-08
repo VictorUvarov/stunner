@@ -325,9 +325,10 @@ different threat model, not part of STUN itself).
   killing the listener. Loader behavior pinned by unit tests (rotation,
   throttle, broken-reload fallback, bad startup).
 - **2026-07-08** — Operations pass, part 2: packaging and deployment docs.
-  Multi-stage Dockerfile (static build into `scratch`, non-root UID, no
-  shell — STUN needs no filesystem at runtime), hardened systemd unit under
-  `deploy/` (DynamicUser, strict ProtectSystem, inet-only address families;
+  Multi-stage Dockerfile under `deploy/` (static build into `scratch`,
+  non-root UID, no shell — STUN needs no filesystem at runtime), hardened
+  systemd unit also under `deploy/` (DynamicUser, strict ProtectSystem,
+  inet-only address families;
   no capabilities since 3478/5349 are unprivileged), and a README deployment
   section covering both plus the RFC 8489 §8 DNS SRV records (`_stun._udp`,
   `_stun._tcp`, `_stuns._tcp`, and RFC 7350's `_stuns._udp` for DTLS).

@@ -61,7 +61,7 @@ go build ./cmd/stunc
 **Docker** — the image is a static binary in an empty (`scratch`) image:
 
 ```sh
-docker build -t stund .
+docker build -t stund -f deploy/Dockerfile .
 docker run --rm -p 3478:3478/udp -p 3478:3478/tcp stund
 ```
 
