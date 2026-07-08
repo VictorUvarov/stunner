@@ -129,8 +129,8 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 // to the true source, so a misbehaving request can't aim even a small
 // reply at a port its sender doesn't hold.
 func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *net.UDPConn, netip.AddrPort) {
-	req, ok := validate(pkt, discoveryIgnorable)
-	if !ok {
+	req, _ := validate(pkt)
+	if req == nil {
 		return nil, nil, netip.AddrPort{}
 	}
 	key, sha2, errResp := authenticate(pkt, req)

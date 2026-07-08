@@ -36,6 +36,7 @@ serve loop returns. That's the whole lifecycle.
 | Valid Binding Request | Success response carrying the sender's address (XOR-MAPPED-ADDRESS) |
 | … containing an attribute we're required to understand but don't | Error 420 listing the offending attributes, so the client knows why |
 | … containing auth attributes (USERNAME, MESSAGE-INTEGRITY) | Ignored and answered normally — unless auth is enabled, see below |
+| A Binding Indication | Silence — indications get no response by design; their receipt alone refreshes NAT bindings |
 | Anything else: random non-STUN bytes, corrupt messages, bad checksums | Silence |
 | A source IP over its rate budget (`RPS`/`Burst` package vars) | Silence |
 
@@ -82,6 +83,13 @@ a magic string plus feature bits covering password-algorithm negotiation
 and username anonymity. An on-path attacker who strips those bits to force
 weaker auth invalidates the nonce, and the downgrade dies with a 438.
 
+One wire-format subtlety: the HMAC covers only what precedes it, so
+attributes *after* MESSAGE-INTEGRITY(-SHA256) could have been appended by
+anyone without invalidating the signature. The server discards them on
+receipt (only FINGERPRINT, which must trail, survives), as
+[RFC 8489 §9](https://datatracker.ietf.org/doc/html/rfc8489#section-9)
+requires — nothing ever acts on unauthenticated trailing attributes.
+
 Nonces are stateless: an expiry timestamp plus an HMAC under a per-process
 random secret (5 minute lifetime). Nothing is stored per client, so the
 nonce table can't be flooded; a server restart just costs clients one extra
@@ -94,9 +102,14 @@ at setup, and only derived keys are kept in memory — raw passwords are not.
 A TCP connection can carry many requests back to back — messages are framed
 by the header's length field. But a stream can't skip bad input the way UDP
 skips a bad datagram: after a framing error there's no way to find the next
-message. So on TCP, anything that would be "silence" on UDP (malformed
-message, bad checksum, oversize frame, rate-limit hit) closes the
-connection instead. Idle connections are dropped after 40s.
+message. So on TCP, input that isn't parseable STUN (garbage bytes,
+malformed framing, oversize frames) and rate-limit hits close the
+connection instead. Well-formed messages that simply draw no reply — a
+Binding Indication keepalive, an unsupported method, a bad FINGERPRINT —
+leave the connection open: the framing survived, and
+[§6.2.2](https://datatracker.ietf.org/doc/html/rfc8489#section-6.2.2) has
+the server let the client decide when to hang up. Idle connections are
+dropped after 40s.
 
 ## Secure transports: TLS and DTLS (`stuns`)
 

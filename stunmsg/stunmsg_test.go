@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -141,5 +142,35 @@ func TestErrorCode(t *testing.T) {
 	v, ok := m.Get(AttrErrorCode)
 	if !ok || v[2] != 4 || v[3] != 20 || string(v[4:]) != "Unknown Attribute" {
 		t.Fatalf("bad ERROR-CODE encoding: %x", v)
+	}
+}
+
+func TestTrimAfterIntegrity(t *testing.T) {
+	cases := []struct {
+		name        string
+		attrs, want []uint16
+	}{
+		{"no integrity", []uint16{AttrUsername, AttrXORMappedAddress},
+			[]uint16{AttrUsername, AttrXORMappedAddress}},
+		{"after MI", []uint16{AttrUsername, AttrMessageIntegrity, 0x7FFF, AttrFingerprint},
+			[]uint16{AttrUsername, AttrMessageIntegrity, AttrFingerprint}},
+		{"MI keeps MI-SHA256", []uint16{AttrMessageIntegrity, 0x7FFF, AttrMessageIntegritySHA256, AttrFingerprint},
+			[]uint16{AttrMessageIntegrity, AttrMessageIntegritySHA256, AttrFingerprint}},
+		{"after MI-SHA256", []uint16{AttrUsername, AttrMessageIntegritySHA256, 0x7FFF, AttrFingerprint, AttrSoftware},
+			[]uint16{AttrUsername, AttrMessageIntegritySHA256, AttrFingerprint}},
+	}
+	for _, c := range cases {
+		m := &Message{Type: BindingRequest}
+		for _, a := range c.attrs {
+			m.Add(a, []byte{0, 0, 0, 0})
+		}
+		m.TrimAfterIntegrity()
+		var got []uint16
+		for _, a := range m.Attrs {
+			got = append(got, a.Type)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: attrs = %04x, want %04x", c.name, got, c.want)
+		}
 	}
 }

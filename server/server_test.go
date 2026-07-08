@@ -111,6 +111,18 @@ func TestIgnorableRequiredAttrStillSucceeds(t *testing.T) {
 	}
 }
 
+func TestAttrsAfterIntegrityIgnored(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	req.Add(stunmsg.AttrMessageIntegrity, make([]byte, 20))
+	// Outside the HMAC's coverage, so it must be ignored (RFC 8489 §9),
+	// not answered with a 420.
+	req.Add(0x7FFF, []byte{1, 2, 3, 4})
+	if resp := roundTrip(t, client, req.Marshal()); resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+}
+
 func TestDropsSilently(t *testing.T) {
 	bad := newRequest(t)
 	bad.AddFingerprint()

@@ -63,9 +63,13 @@ deferred items live at the bottom of this list until they're done.
 8. ~~**TLS + DTLS transports** — RFC 8489 §6.2.3 (`stuns`, port 5349),
    including the ALTERNATE-SERVER / ALTERNATE-DOMAIN redirect machinery
    (§10, §14.15, §14.16).~~ Done.
-9. **Full §6 protocol conformance sweep** — walk RFC 8489 front to back
+9. ~~**Full §6 protocol conformance sweep** — walk RFC 8489 front to back
    and close every remaining MUST/SHOULD (e.g. DNS discovery notes,
-   FINGERPRINT/demux corner cases), documenting each verdict here.
+   FINGERPRINT/demux corner cases), documenting each verdict here.~~ Done
+   (two fixes — attributes after MESSAGE-INTEGRITY now ignored, streams
+   stay open through valid no-reply messages — full verdict list in the
+   progress log; one SHOULD deliberately declined: RFC 3489 backwards
+   compatibility, §11/§12).
 
 Out of scope: TURN relaying (RFC 8656 is a different protocol and a
 different threat model, not part of STUN itself).
@@ -215,3 +219,43 @@ different threat model, not part of STUN itself).
   garbage-record survival, redirect variants) and a new independent
   `test/tls_client.py`; DTLS end-to-end rides the pion loopback tests since
   Python has no stdlib DTLS.
+- **2026-07-08** — Conformance sweep (phase 9, roadmap complete). Walked
+  RFC 8489 §5–§14 requirement by requirement against the code. Two gaps
+  found, both fixed:
+  1. **Attributes after MESSAGE-INTEGRITY(-SHA256) are now ignored**
+     (§9's receiving rule, easy to miss — it lives in the section intro,
+     not a numbered subsection). The HMAC covers only what precedes it, so
+     an attacker can append attributes to a captured signed request without
+     invalidating it. Before the fix, appended junk drew a 420 instead of
+     being ignored, and — the real bite — an appended RESPONSE-PORT or
+     CHANGE-REQUEST would have steered a *discovery* response while riding
+     someone else's signature. `stunmsg.TrimAfterIntegrity` (keeps only
+     MESSAGE-INTEGRITY-SHA256 and FINGERPRINT past the boundary), applied
+     centrally in `validate` so every transport and both usages inherit it.
+  2. **Streams no longer hang up on valid no-reply messages** (§6.3.2 +
+     §6.2.2's "let the client close it"). A Binding Indication — the
+     TCP/TLS keepalive — or an unsupported-method request used to kill the
+     connection, because `serveConn` read every nil response as "framing
+     lost". `handle` now reports whether the message parsed as STUN at
+     all: parse failure still hangs up (a stream can't resync), but
+     well-formed silently-discarded messages leave the connection open.
+     DTLS/UDP behavior unchanged.
+  Verdicts on everything else, in RFC order: §5 framing checks (leading
+  zero bits, magic cookie, length ≡ 0 mod 4 and matching the buffer) were
+  already strict in `Parse`; §6.3's silent-discard set and §6.3.1's
+  ordering (auth, *then* unknown-attribute 420 — the §6.3 text is explicit)
+  already matched; retransmissions are handled by stateless recompute,
+  which §6.3.1 blesses for idempotent methods and Binding specifically;
+  §6.3.1.1/.2 response forming (transaction ID echo, XOR-MAPPED-ADDRESS
+  from the transport source, ERROR-CODE + SOFTWARE, same transport/
+  connection back) all held. §7/§12: FINGERPRINT is verified when present,
+  never required — as §12 mandates for a basic server. §8 DNS discovery is
+  deployment guidance; the default ports are already 3478/5349. §12's
+  SHOULD-NOTs (no auth, no ALTERNATE-SERVER on a basic server) hold since
+  both are opt-in and default-off. Declined: §12's SHOULD for RFC 3489
+  ("classic STUN") backwards compatibility — magic-cookie-less clients are
+  effectively extinct, and §11 support would weaken the demux checks that
+  keep the silent-discard path cheap; revisit only if a real client class
+  ever surfaces. New tests: trim table test in `stunmsg`, appended-attr
+  420-suppression over loopback UDP, and a TCP test proving indications
+  and unknown methods don't cost the connection.

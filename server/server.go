@@ -50,7 +50,7 @@ func Serve(conn *net.UDPConn) error {
 		if !lim.allow(src.Addr(), time.Now()) {
 			continue
 		}
-		if resp := handle(buf[:n], src); resp != nil {
+		if resp, _ := handle(buf[:n], src); resp != nil {
 			if _, err := conn.WriteToUDPAddrPort(resp, src); err != nil {
 				slog.Warn("write failed", "dst", src, "err", err)
 			}
@@ -58,34 +58,45 @@ func Serve(conn *net.UDPConn) error {
 	}
 }
 
-// handle turns one datagram into a response, or nil to stay silent.
+// handle turns one message into a response, or nil to stay silent.
 // Non-STUN traffic, malformed messages, bad fingerprints, and non-Binding
 // message types are all dropped without a reply, per RFC 8489 §6.3.
 // Authentication (when enabled) runs before the unknown-attribute check,
-// as RFC 8489 §6.3.1 orders it.
-func handle(pkt []byte, src netip.AddrPort) []byte {
-	req, ok := validate(pkt, ignorable)
-	if !ok {
-		return nil
+// as RFC 8489 §6.3 orders it. The boolean tells the two silences apart
+// for stream transports: false means pkt wasn't STUN at all, true means a
+// well-formed message that simply warrants no reply (an indication, an
+// unsupported method, a bad fingerprint).
+func handle(pkt []byte, src netip.AddrPort) ([]byte, bool) {
+	req, stun := validate(pkt)
+	if req == nil {
+		return nil, stun
 	}
 	key, sha2, errResp := authenticate(pkt, req)
 	if errResp != nil {
-		return seal(errResp, nil, false)
+		return seal(errResp, nil, false), true
 	}
 	if resp := redirect(req, src); resp != nil {
-		return seal(resp, key, sha2)
+		return seal(resp, key, sha2), true
 	}
-	return seal(respond(req, src, ignorable), key, sha2)
+	return seal(respond(req, src, ignorable), key, sha2), true
 }
 
-// validate parses pkt and reports whether it is a Binding Request with an
-// intact fingerprint — everything else means "stay silent".
-func validate(pkt []byte, ignore map[uint16]bool) (*stunmsg.Message, bool) {
+// validate parses pkt and returns it if it is a Binding Request with an
+// intact fingerprint — everything else means "stay silent". The boolean
+// reports the weaker fact of whether pkt parsed as STUN at all. Attributes
+// after MESSAGE-INTEGRITY(-SHA256) are dropped here, before anything can
+// act on them (RFC 8489 §9): they sit outside the HMAC's coverage, so an
+// attacker could have appended them to a signed request.
+func validate(pkt []byte) (*stunmsg.Message, bool) {
 	req, err := stunmsg.Parse(pkt)
-	if err != nil || req.Type != stunmsg.BindingRequest {
+	if err != nil {
 		return nil, false
 	}
-	return req, stunmsg.VerifyFingerprint(pkt)
+	if req.Type != stunmsg.BindingRequest || !stunmsg.VerifyFingerprint(pkt) {
+		return nil, true
+	}
+	req.TrimAfterIntegrity()
+	return req, true
 }
 
 // respond builds the response skeleton for a validated request: a success

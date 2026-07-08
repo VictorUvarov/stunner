@@ -30,9 +30,13 @@ func ServeTCP(ln net.Listener) error {
 }
 
 // serveConn reads framed STUN messages off one connection and answers them.
-// Unlike UDP, invalid input can't be skipped on a stream — after a framing
-// error we no longer know where the next message starts — so any bad
-// message, oversize frame, idle timeout, or rate-limit hit hangs up.
+// Unlike UDP, unparseable input can't be skipped on a stream — after a
+// framing error we no longer know where the next message starts — so
+// garbage, oversize frames, idle timeouts, and rate-limit hits hang up.
+// Well-formed messages that draw no reply (a Binding Indication keepalive,
+// an unsupported method — silently discarded per RFC 8489 §6.3) leave the
+// connection open: the framing survived, and §6.2.2 has the server keep
+// the connection open and let the client close it.
 func serveConn(c net.Conn, lim *limiter) {
 	defer c.Close()
 	src := c.RemoteAddr().(*net.TCPAddr).AddrPort()
@@ -52,9 +56,12 @@ func serveConn(c net.Conn, lim *limiter) {
 		if !lim.allow(src.Addr(), time.Now()) {
 			return
 		}
-		resp := handle(buf[:n], src)
-		if resp == nil {
+		resp, stun := handle(buf[:n], src)
+		if !stun {
 			return
+		}
+		if resp == nil {
+			continue
 		}
 		c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := c.Write(resp); err != nil {

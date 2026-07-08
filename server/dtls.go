@@ -58,7 +58,7 @@ func serveDatagramConn(c net.Conn, lim *limiter) {
 		if !lim.allow(src.Addr(), time.Now()) {
 			continue
 		}
-		if resp := handle(buf[:n], src); resp != nil {
+		if resp, _ := handle(buf[:n], src); resp != nil {
 			c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := c.Write(resp); err != nil {
 				return

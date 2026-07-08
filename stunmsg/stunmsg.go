@@ -11,9 +11,10 @@ import (
 
 // Message types used by a Binding server.
 const (
-	BindingRequest = 0x0001
-	BindingSuccess = 0x0101
-	BindingError   = 0x0111
+	BindingRequest    = 0x0001
+	BindingIndication = 0x0011
+	BindingSuccess    = 0x0101
+	BindingError      = 0x0111
 )
 
 // Attribute types (comprehension-required < 0x8000, optional >= 0x8000).
@@ -158,6 +159,30 @@ func (m *Message) Get(t uint16) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+// TrimAfterIntegrity drops the attributes a receiving agent must ignore
+// (RFC 8489 §9): everything after MESSAGE-INTEGRITY except
+// MESSAGE-INTEGRITY-SHA256 and FINGERPRINT, or — when MESSAGE-INTEGRITY is
+// absent — everything after MESSAGE-INTEGRITY-SHA256 except FINGERPRINT.
+// The HMACs cover only what precedes them, so anything else back there
+// could have been appended without invalidating the signature; a receiver
+// that acted on it would be acting on unauthenticated input.
+func (m *Message) TrimAfterIntegrity() {
+	for i, a := range m.Attrs {
+		if a.Type != AttrMessageIntegrity && a.Type != AttrMessageIntegritySHA256 {
+			continue
+		}
+		kept := m.Attrs[:i+1]
+		for _, b := range m.Attrs[i+1:] {
+			if b.Type == AttrFingerprint ||
+				(a.Type == AttrMessageIntegrity && b.Type == AttrMessageIntegritySHA256) {
+				kept = append(kept, b)
+			}
+		}
+		m.Attrs = kept
+		return
+	}
 }
 
 // AddAddress appends ap as an attribute of type t in the plain (non-XOR)
@@ -355,6 +380,8 @@ func (m *Message) String() string {
 	switch m.Type {
 	case BindingRequest:
 		name = "BindingRequest"
+	case BindingIndication:
+		name = "BindingIndication"
 	case BindingSuccess:
 		name = "BindingSuccess"
 	case BindingError:
