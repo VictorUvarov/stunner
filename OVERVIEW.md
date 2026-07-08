@@ -76,3 +76,6 @@ the response contains nothing an on-path attacker doesn't already know).
   Shutdown model: closing the socket ends `Serve` cleanly (SIGINT/SIGTERM
   handler in main). Verified with package tests over real loopback sockets
   plus an independent Python client against the built binary.
+- **2026-07-07** — Per-package READMEs: `stunmsg/` (API + wire-format
+  gotchas), `server/` (behavior table + lifecycle), `cmd/stund/` (flags).
+  This file stays the cross-cutting design doc and progress log.
