@@ -36,6 +36,7 @@ Stop it with Ctrl-C.
 
 - ✅ STUN Binding over UDP and TCP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
 - ✅ Per-IP rate limiting, on by default
+- ✅ NAT behavior discovery ([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)) on servers with two IPs (`-alt-ip`)
 - ❌ TURN (media relaying) — different, much heavier protocol; use
   [coturn](https://github.com/coturn/coturn) if you need relaying
 

@@ -17,7 +17,11 @@ const (
 )
 
 // Attribute types (comprehension-required < 0x8000, optional >= 0x8000).
+// RESPONSE-ORIGIN, OTHER-ADDRESS, and CHANGE-REQUEST are from RFC 5780
+// (NAT behavior discovery); the rest are RFC 8489.
 const (
+	AttrMappedAddress          = 0x0001
+	AttrChangeRequest          = 0x0003
 	AttrUsername               = 0x0006
 	AttrMessageIntegrity       = 0x0008
 	AttrErrorCode              = 0x0009
@@ -26,6 +30,14 @@ const (
 	AttrXORMappedAddress       = 0x0020
 	AttrSoftware               = 0x8022
 	AttrFingerprint            = 0x8028
+	AttrResponseOrigin         = 0x802B
+	AttrOtherAddress           = 0x802C
+)
+
+// CHANGE-REQUEST flag bits (RFC 5780 §7.2), in the last byte of the value.
+const (
+	ChangeIP   = 0x04
+	ChangePort = 0x02
 )
 
 // Required reports whether attribute type t is comprehension-required: a
@@ -130,6 +142,40 @@ func (m *Message) Get(t uint16) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+// AddAddress appends ap as an attribute of type t in the plain (non-XOR)
+// MAPPED-ADDRESS format shared by MAPPED-ADDRESS, RESPONSE-ORIGIN, and
+// OTHER-ADDRESS.
+func (m *Message) AddAddress(t uint16, ap netip.AddrPort) {
+	ip := ap.Addr().Unmap()
+	family := byte(1)
+	if ip.Is6() {
+		family = 2
+	}
+	b := ip.AsSlice()
+	v := make([]byte, 4+len(b))
+	v[1] = family
+	binary.BigEndian.PutUint16(v[2:4], ap.Port())
+	copy(v[4:], b)
+	m.Add(t, v)
+}
+
+// Address decodes the first attribute of type t as a plain (non-XOR)
+// MAPPED-ADDRESS-format transport address.
+func (m *Message) Address(t uint16) (netip.AddrPort, error) {
+	v, ok := m.Get(t)
+	if !ok {
+		return netip.AddrPort{}, fmt.Errorf("stunmsg: no attribute 0x%04x", t)
+	}
+	if len(v) != 8 && len(v) != 20 {
+		return netip.AddrPort{}, ErrMalformed
+	}
+	ip, ok := netip.AddrFromSlice(v[4:])
+	if !ok {
+		return netip.AddrPort{}, ErrMalformed
+	}
+	return netip.AddrPortFrom(ip, binary.BigEndian.Uint16(v[2:4])), nil
 }
 
 // AddXORMappedAddress appends ap as an XOR-MAPPED-ADDRESS attribute,

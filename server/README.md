@@ -54,6 +54,31 @@ message. So on TCP, anything that would be "silence" on UDP (malformed
 message, bad checksum, oversize frame, rate-limit hit) closes the
 connection instead. Idle connections are dropped after 40s.
 
+## NAT behavior discovery (RFC 5780)
+
+Beyond "what's my address?", a client may want to know *how* its NAT
+behaves — e.g. whether the same public port is reused for every destination
+(good for peer-to-peer) or whether inbound packets from unknown hosts get
+dropped. Answering that requires the server to reply from *different*
+addresses on request, so the client can observe what gets through.
+
+`Discovery` implements this
+([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)): four UDP
+sockets (two IPs × two ports), plus three attributes:
+
+- **RESPONSE-ORIGIN** — where this response was actually sent from.
+- **OTHER-ADDRESS** — the alternate IP:port the client could probe.
+- **CHANGE-REQUEST** — client asks: reply from the other IP and/or port.
+
+```go
+d, _ := server.ListenDiscovery(ip1, ip2, 3478, 3479)
+err := d.Serve()   // blocks; d.Close() ends it
+```
+
+Error responses always leave from the socket that received the request.
+PADDING and RESPONSE-PORT (fragment/lifetime tests) are not implemented;
+being comprehension-required attributes, they correctly draw a 420.
+
 ## Tests
 
 `server_test.go` runs the real loop over loopback sockets: success path,

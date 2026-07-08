@@ -57,16 +57,30 @@ func Serve(conn *net.UDPConn) error {
 // Non-STUN traffic, malformed messages, bad fingerprints, and non-Binding
 // message types are all dropped without a reply, per RFC 8489 §6.3.
 func handle(pkt []byte, src netip.AddrPort) []byte {
+	req, ok := validate(pkt, ignorable)
+	if !ok {
+		return nil
+	}
+	return seal(respond(req, src, ignorable))
+}
+
+// validate parses pkt and reports whether it is a Binding Request with an
+// intact fingerprint — everything else means "stay silent".
+func validate(pkt []byte, ignore map[uint16]bool) (*stunmsg.Message, bool) {
 	req, err := stunmsg.Parse(pkt)
 	if err != nil || req.Type != stunmsg.BindingRequest {
-		return nil
+		return nil, false
 	}
-	if !stunmsg.VerifyFingerprint(pkt) {
-		return nil
-	}
+	return req, stunmsg.VerifyFingerprint(pkt)
+}
 
+// respond builds the response skeleton for a validated request: a success
+// carrying XOR-MAPPED-ADDRESS, or a 420 error if req has comprehension-
+// required attributes outside ignore. Callers may append usage-specific
+// attributes to a success before sealing it.
+func respond(req *stunmsg.Message, src netip.AddrPort, ignore map[uint16]bool) *stunmsg.Message {
 	resp := &stunmsg.Message{TransactionID: req.TransactionID}
-	if unknown := unknownRequired(req); len(unknown) > 0 {
+	if unknown := unknownRequired(req, ignore); len(unknown) > 0 {
 		slog.Debug("unknown attributes", "src", src, "attrs", unknown)
 		resp.Type = stunmsg.BindingError
 		resp.AddErrorCode(420, "Unknown Attribute")
@@ -76,17 +90,23 @@ func handle(pkt []byte, src netip.AddrPort) []byte {
 		resp.Type = stunmsg.BindingSuccess
 		resp.AddXORMappedAddress(src)
 	}
+	return resp
+}
+
+// seal appends the trailing attributes every response carries (SOFTWARE,
+// then FINGERPRINT, which must be last) and marshals.
+func seal(resp *stunmsg.Message) []byte {
 	resp.AddSoftware(Software)
 	resp.AddFingerprint()
 	return resp.Marshal()
 }
 
 // unknownRequired returns the comprehension-required attribute types in m
-// that this server doesn't understand.
-func unknownRequired(m *stunmsg.Message) []uint16 {
+// outside the ignore set.
+func unknownRequired(m *stunmsg.Message, ignore map[uint16]bool) []uint16 {
 	var out []uint16
 	for _, a := range m.Attrs {
-		if stunmsg.Required(a.Type) && !ignorable[a.Type] {
+		if stunmsg.Required(a.Type) && !ignore[a.Type] {
 			out = append(out, a.Type)
 		}
 	}

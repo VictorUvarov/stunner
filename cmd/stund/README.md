@@ -16,7 +16,16 @@ go build ./cmd/stund
 | `-addr` | `:3478` | listen address, used for both UDP and TCP |
 | `-tcp` | on | also serve STUN over TCP (`-tcp=false` for UDP only) |
 | `-rps` | `10` | per-IP request rate limit, with 2× burst headroom (`0` disables) |
+| `-alt-ip` | off | second IP; enables RFC 5780 NAT discovery (four UDP sockets) |
+| `-alt-port` | primary + 1 | alternate port for NAT discovery |
 | `-v` | off | debug logging (logs each handled request) |
+
+NAT discovery mode needs two public IPs on the machine and an explicit IP
+in `-addr`, e.g.:
+
+```sh
+./stund -addr 198.51.100.10:3478 -alt-ip 198.51.100.11
+```
 
 Logs go to stderr. Stop it with Ctrl-C (or SIGTERM): that closes the
 socket, which ends the serve loop cleanly and exits 0.

@@ -40,9 +40,10 @@ parse, respond.
    attributes get a 420 error response.
 3. ~~**Hardening** — per-IP rate limiting, graceful shutdown, structured
    logs, TCP listener.~~ Done.
-4. **NAT behavior discovery** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780):
+4. ~~**NAT behavior discovery** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780):
    OTHER-ADDRESS, RESPONSE-ORIGIN, CHANGE-REQUEST, answering from alternate
-   port/IP so clients can classify their NAT. Full mode needs two public IPs.
+   port/IP so clients can classify their NAT. Full mode needs two public
+   IPs.~~ Done (mapping + filtering tests; PADDING/RESPONSE-PORT skipped).
 5. **Auth** — RFC 8489 long-term credentials: 401 challenge with REALM/NONCE,
    MESSAGE-INTEGRITY(-SHA256) validation. Opt-in; anonymous binding stays the
    default (public STUN servers run unauthenticated — the response contains
@@ -105,3 +106,15 @@ Skipped deliberately: TURN relaying, TLS/DTLS transport.
   USERNAME / MESSAGE-INTEGRITY(-SHA256), `AddUnknownAttributes`, and
   `Required()` for the comprehension-required check. Roadmap updated: NAT
   discovery and auth are now planned work, not "maybe later".
+- **2026-07-07** — RFC 5780 NAT behavior discovery (phase 4). `Discovery`
+  runs four UDP sockets ([2 IPs][2 ports]) sharing one rate limiter;
+  CHANGE-REQUEST flips the socket indices per §6.1 Table 1, RESPONSE-ORIGIN
+  reports the actual sender, OTHER-ADDRESS the diagonal alternate. Success
+  responses carry MAPPED-ADDRESS alongside XOR-MAPPED-ADDRESS as the RFC
+  requires. The plain handler was split into validate/respond/seal so both
+  usages share validation and the 420 path. Error responses leave from the
+  receiving socket. Without `-alt-ip`, CHANGE-REQUEST stays outside the
+  ignorable set and draws a 420 — exactly what §6 mandates for single-IP
+  servers. PADDING and RESPONSE-PORT (fragment/lifetime tests) skipped;
+  as comprehension-required attrs they 420 too, which degrades those
+  client tests gracefully.
