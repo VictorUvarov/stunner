@@ -24,9 +24,11 @@ transit.
 ## Architecture
 
 ```
-cmd/stund/        main: flags, listener setup, shutdown
-stunmsg/          message parse/serialize: header, attributes (no I/O)
-server/           UDP and TCP loops: decode request → build response → send
+cmd/stund/            server main: flags, listener setup, cert reload, shutdown
+cmd/stunc/            client main: query a server, print the mapped address
+internal/stunmsg/     message parse/serialize: header, attributes (no I/O)
+internal/server/      UDP and TCP loops: decode request → build response → send
+internal/stunclient/  client transactions: retransmission, auth handshake
 ```
 
 `stunmsg` is a pure library with no networking, so it's trivially testable
@@ -288,3 +290,63 @@ different threat model, not part of STUN itself).
   ALTERNATE-SERVER after the mandatory same-family one. Verified by codec
   and loopback tests plus a classic exchange in the Python binding client;
   `just check` green.
+- **2026-07-08** — Fuzzing for the codec's hostile-input surface. Two native
+  Go fuzz targets in `stunmsg`: `FuzzParse` feeds arbitrary bytes to every
+  raw-buffer entry point (Parse, VerifyFingerprint, both integrity
+  verifiers, the attribute accessors) and checks that accepted input
+  survives marshal → reparse with meaning intact — including the
+  zero-cookie corner where a classic transaction ID is indistinguishable
+  from an unset field; `FuzzBuild` drives the construction path with
+  arbitrary in-contract inputs and asserts built messages verify, the
+  wrong key never does, and the XOR address transform inverts exactly.
+  Seeded with the RFC 5769/8489 vectors. ~50M execs clean at landing;
+  `just fuzz [time]` runs both.
+- **2026-07-08** — RFC 8489 §13 DTLS DoS countermeasure, verdict closed:
+  a server offering DTLS MUST do the RFC 6347 §4.2.1 cookie exchange, so a
+  spoofed ClientHello can't make it commit handshake state (or amplify)
+  toward an address that never asked. We inherit this from pion/dtls, which
+  cookie-verifies unconditionally server-side unless its explicitly-named
+  `WithInsecureSkipVerifyHello` option is set (we never set it). Pinned by
+  `TestDTLSCookieExchange`: a recording UDP proxy sits in a real handshake
+  and asserts the server's first flight is HelloVerifyRequest — and carries
+  no ServerHello — so a pion upgrade that ever changed the default would
+  fail the suite, not just weaken the deployment.
+- **2026-07-08** — Operations pass, part 1: metrics and certificate reload.
+  Per-transport counters (`server/metrics.go`: received / replies / errors /
+  rate-limited, atomics keyed udp·tcp·tls·dtls·discovery — TCP and TLS split
+  by a type assertion in the shared serve loop) exported in Prometheus text
+  format via the new `-metrics-addr` flag; silent discards are deliberately
+  the remainder received − replies − limited rather than a counter of their
+  own. Certificate rotation without restart: `-tls-cert`/`-tls-key` now feed
+  a `certLoader` (cmd/stund/reload.go) that both `tls.Config.GetCertificate`
+  and pion's `WithGetCertificate` consult per handshake; it re-stats the
+  files at most once a second, reloads on newer mtimes, and keeps the last
+  good pair when a rotation writes garbage — a bad renewal logs instead of
+  killing the listener. Loader behavior pinned by unit tests (rotation,
+  throttle, broken-reload fallback, bad startup).
+- **2026-07-08** — Operations pass, part 2: packaging and deployment docs.
+  Multi-stage Dockerfile (static build into `scratch`, non-root UID, no
+  shell — STUN needs no filesystem at runtime), hardened systemd unit under
+  `deploy/` (DynamicUser, strict ProtectSystem, inet-only address families;
+  no capabilities since 3478/5349 are unprivileged), and a README deployment
+  section covering both plus the RFC 8489 §8 DNS SRV records (`_stun._udp`,
+  `_stun._tcp`, `_stuns._tcp`, and RFC 7350's `_stuns._udp` for DTLS).
+- **2026-07-08** — Go client: `internal/stunclient` package and `cmd/stunc`
+  binary. The client side of the Binding usage over every transport the
+  server speaks: datagram semantics (UDP, or a pion DTLS conn) with the
+  §6.2.1 retransmission schedule (RTO 500ms doubling, Rc=7, Rm=16, all
+  configurable — responses matched on transaction ID, stray/broken-
+  fingerprint datagrams ignored), stream semantics (TCP, TLS) with length
+  framing under the schedule's total as deadline. Long-term credentials run
+  the §9.2.5 client flow mirror-imaged to our server's §9.2.4 checks:
+  OpaqueString preparation, PASSWORD-ALGORITHMS echoed verbatim with
+  SHA-256 preferred — engaged only when the nonce cookie's feature bit
+  vouches for the list (client-side bid-down protection) — response
+  integrity verified before the result is trusted, one silent retry on a
+  438. 300 redirects surface as a typed `Redirect` error; following is the
+  caller's call because of §14.16 certificate validation. Tested against
+  the real server package over loopback (UDP/TCP binding, drop-first-
+  request retransmission, full-schedule timeout, auth good/bad/absent,
+  redirect), and `just test-e2e` runs the built `stunc` against the built
+  `stund` over UDP, TCP, TLS, DTLS, and the auth handshake — the Go
+  counterpart to the Python integration clients, now part of `just check`.

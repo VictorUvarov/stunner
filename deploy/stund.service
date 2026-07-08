@@ -1,0 +1,45 @@
+# systemd unit for stund. Install:
+#   cp bin/stund /usr/local/bin/stund
+#   cp deploy/stund.service /etc/systemd/system/stund.service
+#   systemctl enable --now stund
+#
+# For TLS/DTLS, append e.g.:
+#   -tls-cert /etc/letsencrypt/live/stun.example.org/fullchain.pem \
+#   -tls-key  /etc/letsencrypt/live/stun.example.org/privkey.pem
+# to ExecStart (certificate rotation is picked up automatically — stund
+# re-reads the files when they change; no restart or reload needed) and
+# widen ReadOnlyPaths accordingly.
+
+[Unit]
+Description=stund STUN server (RFC 8489)
+Documentation=https://datatracker.ietf.org/doc/html/rfc8489
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/stund -addr :3478 -metrics-addr 127.0.0.1:9478
+Restart=on-failure
+RestartSec=2s
+
+# stund is stateless and needs nothing from the system: no privileges, no
+# home, no writable filesystem, only inet sockets. 3478/5349 are unprivileged
+# ports, so no capabilities either.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

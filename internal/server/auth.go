@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/text/secure/precis"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // Credentials, when non-nil, enables RFC 8489 §9.2 long-term credential

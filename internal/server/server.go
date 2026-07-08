@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // Software is the SOFTWARE attribute value stamped on every response.
@@ -38,6 +38,7 @@ func Serve(conn *net.UDPConn) error {
 	if RPS > 0 {
 		lim = newLimiter(RPS, Burst)
 	}
+	m := Metrics["udp"]
 	buf := make([]byte, 1500)
 	for {
 		n, src, err := conn.ReadFromUDPAddrPort(buf)
@@ -47,10 +48,13 @@ func Serve(conn *net.UDPConn) error {
 			}
 			return err
 		}
+		m.Received.Add(1)
 		if !lim.allow(src.Addr(), time.Now()) {
+			m.Limited.Add(1)
 			continue
 		}
 		if resp, _ := handle(buf[:n], src); resp != nil {
+			m.countReply(resp)
 			if _, err := conn.WriteToUDPAddrPort(resp, src); err != nil {
 				slog.Warn("write failed", "dst", src, "err", err)
 			}

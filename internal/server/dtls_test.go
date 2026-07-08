@@ -8,7 +8,7 @@ import (
 
 	"github.com/pion/dtls/v3"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 func startDTLSServer(t *testing.T) *dtls.Conn {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 const (

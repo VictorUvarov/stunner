@@ -13,9 +13,10 @@ default:
 
 # ── build ─────────────────────────────────────────────────────────────────
 
-# Compile the stund binary into ./bin.
+# Compile the stund and stunc binaries into ./bin.
 build:
     go build -o {{bin}} ./cmd/stund
+    go build -o bin/stunc ./cmd/stunc
 
 # Remove build artifacts and generated dev certs.
 clean:
@@ -67,6 +68,11 @@ test-race:
 cover:
     go test -cover ./...
 
+# Fuzz the stunmsg codec (30s per target by default: `just fuzz 5m` for longer).
+fuzz time="30s":
+    go test -fuzz FuzzParse -fuzztime {{time}} ./internal/stunmsg
+    go test -fuzz FuzzBuild -fuzztime {{time}} ./internal/stunmsg
+
 # Vet, format-check, and tidy-check — the pre-commit sweep.
 lint:
     #!/usr/bin/env bash
@@ -115,7 +121,24 @@ test-py-tls: build cert
     sleep 0.3
     python3 test/tls_client.py 127.0.0.1 5349
 
+# ── Go end-to-end test ────────────────────────────────────────────────────
+
+# stunc against stund over every transport plus the auth handshake.
+test-e2e: build cert
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{bin}} -addr {{addr}} -tls-addr {{tls-addr}} -tls-cert {{certdir}}/cert.pem -tls-key {{certdir}}/key.pem & pid=$!
+    {{bin}} -addr {{auth-addr}} -realm example.org -user alice:s3cret & pid2=$!
+    trap 'kill $pid $pid2 2>/dev/null || true' EXIT
+    sleep 0.3
+    bin/stunc {{addr}}
+    bin/stunc -proto tcp {{addr}}
+    bin/stunc -proto tls -insecure {{tls-addr}}
+    bin/stunc -proto dtls -insecure {{tls-addr}}
+    bin/stunc -user alice:s3cret {{auth-addr}}
+    echo "e2e ok"
+
 # ── everything ────────────────────────────────────────────────────────────
 
-# Full check: lint, Go tests, and Python integration tests.
-check: lint test test-py
+# Full check: lint, Go tests, and the integration tests (Python + Go e2e).
+check: lint test test-py test-e2e

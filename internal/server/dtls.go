@@ -7,7 +7,7 @@ import (
 
 	"github.com/pion/transport/v4/udp"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // ServeDTLS answers Binding Requests on ln, a DTLS listener (STUN over
@@ -70,6 +70,7 @@ func classicOverDTLS(pkt []byte) ([]byte, bool) {
 // record boundary survives, so silence stays cheaper than a reply.
 func serveDatagramConn(c net.Conn, lim *limiter) {
 	defer c.Close()
+	m := Metrics["dtls"]
 	src := c.RemoteAddr().(*net.UDPAddr).AddrPort()
 	buf := make([]byte, maxConnMessage)
 	for {
@@ -78,7 +79,9 @@ func serveDatagramConn(c net.Conn, lim *limiter) {
 		if err != nil {
 			return
 		}
+		m.Received.Add(1)
 		if !lim.allow(src.Addr(), time.Now()) {
+			m.Limited.Add(1)
 			continue
 		}
 		resp, classic := classicOverDTLS(buf[:n])
@@ -86,6 +89,7 @@ func serveDatagramConn(c net.Conn, lim *limiter) {
 			resp, _ = handle(buf[:n], src)
 		}
 		if resp != nil {
+			m.countReply(resp)
 			c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := c.Write(resp); err != nil {
 				return

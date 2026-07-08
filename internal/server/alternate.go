@@ -3,7 +3,7 @@ package server
 import (
 	"net/netip"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // AlternateServer configures the ALTERNATE-SERVER mechanism (RFC 8489 §10):

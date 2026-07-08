@@ -2,10 +2,12 @@
 
 ![Stunner Image](./static/stunner.png)
 
-A small, fast STUN server written in Go. No dependencies, one binary.
+A small, fast STUN server written in Go. One binary.
 
-> **Status: working.** Binding over UDP and TCP with per-IP rate limiting.
-> See the [progress log](OVERVIEW.md#progress-log) for what's next.
+> **Status: feature-complete.** Every MUST and SHOULD in RFC 8489 — Binding
+> over UDP, TCP, TLS, and DTLS, long-term credential auth, NAT behavior
+> discovery (RFC 5780), even RFC 3489 "classic STUN" backwards compatibility.
+> See the [progress log](OVERVIEW.md#progress-log) for the full story.
 
 ## What is this for?
 
@@ -34,13 +36,60 @@ go build ./cmd/stund
 Then point your WebRTC config (or any STUN client) at `stun:your-host:3478`.
 Stop it with Ctrl-C.
 
+A client ships in the same repo, handy for checking a deployment:
+
+```sh
+go build ./cmd/stunc
+./stunc your-host        # prints the address the server saw you as
+```
+
 ## What it will and won't do
 
 - ✅ STUN Binding over UDP and TCP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
+- ✅ Secure transports: `stuns` over TLS and DTLS (`-tls-cert`/`-tls-key`),
+  with certificate rotation picked up without a restart
+- ✅ Long-term credential auth (`-realm`/`-user`), including USERHASH and
+  password-algorithm negotiation
 - ✅ Per-IP rate limiting, on by default
 - ✅ NAT behavior discovery ([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)) on servers with two IPs (`-alt-ip`)
+- ✅ Prometheus counters (`-metrics-addr`)
 - ❌ TURN (media relaying) — different, much heavier protocol; use
   [coturn](https://github.com/coturn/coturn) if you need relaying
+
+## Deployment
+
+**Docker** — the image is a static binary in an empty (`scratch`) image:
+
+```sh
+docker build -t stund .
+docker run --rm -p 3478:3478/udp -p 3478:3478/tcp stund
+```
+
+**systemd** — a hardened unit lives in [`deploy/stund.service`](deploy/stund.service):
+
+```sh
+go build -o /usr/local/bin/stund ./cmd/stund
+cp deploy/stund.service /etc/systemd/system/ && systemctl enable --now stund
+```
+
+**DNS** — [RFC 8489 §8](https://datatracker.ietf.org/doc/html/rfc8489#section-8)
+clients discover servers through SRV records, which also let you move or
+load-balance the service later without touching client config:
+
+```dns
+_stun._udp.example.org.  IN SRV 0 0 3478 stun.example.org.
+_stun._tcp.example.org.  IN SRV 0 0 3478 stun.example.org.
+_stuns._tcp.example.org. IN SRV 0 0 5349 stun.example.org.  ; TLS
+_stuns._udp.example.org. IN SRV 0 0 5349 stun.example.org.  ; DTLS (RFC 7350)
+```
+
+The port numbers in the SRV records are authoritative for clients that look
+them up; 3478 (`stun`) and 5349 (`stuns`) are just the defaults for clients
+that don't.
+
+**Monitoring** — `-metrics-addr 127.0.0.1:9478` serves per-transport
+request/reply/error counters in Prometheus text format on `/metrics`. Bind
+it to localhost or an internal interface; it has no auth of its own.
 
 ## For developers
 

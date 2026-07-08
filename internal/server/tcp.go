@@ -1,12 +1,13 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/binary"
 	"io"
 	"net"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // maxConnMessage caps a single message read off a connection-oriented
@@ -39,6 +40,10 @@ func ServeTCP(ln net.Listener) error {
 // the connection open and let the client close it.
 func serveConn(c net.Conn, lim *limiter) {
 	defer c.Close()
+	m := Metrics["tcp"]
+	if _, ok := c.(*tls.Conn); ok {
+		m = Metrics["tls"]
+	}
 	src := c.RemoteAddr().(*net.TCPAddr).AddrPort()
 	buf := make([]byte, maxConnMessage)
 	for {
@@ -48,12 +53,15 @@ func serveConn(c net.Conn, lim *limiter) {
 		}
 		n := stunmsg.HeaderSize + int(binary.BigEndian.Uint16(buf[2:4]))
 		if n > maxConnMessage {
+			m.Received.Add(1)
 			return
 		}
 		if _, err := io.ReadFull(c, buf[stunmsg.HeaderSize:n]); err != nil {
 			return
 		}
+		m.Received.Add(1)
 		if !lim.allow(src.Addr(), time.Now()) {
+			m.Limited.Add(1)
 			return
 		}
 		resp, stun := handle(buf[:n], src)
@@ -63,6 +71,7 @@ func serveConn(c net.Conn, lim *limiter) {
 		if resp == nil {
 			continue
 		}
+		m.countReply(resp)
 		c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := c.Write(resp); err != nil {
 			return

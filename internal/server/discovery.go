@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // Discovery serves the NAT behavior discovery usage (RFC 5780): the Binding
@@ -103,6 +103,7 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 	// caps sends at SO_SNDBUF, 9216 by default). Best effort: on failure,
 	// oversized sends just keep failing as they would have anyway.
 	conn.SetWriteBuffer(1 << 16)
+	m := Metrics["discovery"]
 	buf := make([]byte, 1<<16)
 	for {
 		n, src, err := conn.ReadFromUDPAddrPort(buf)
@@ -112,10 +113,13 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 			}
 			return err
 		}
+		m.Received.Add(1)
 		if !lim.allow(src.Addr(), time.Now()) {
+			m.Limited.Add(1)
 			continue
 		}
 		if resp, out, dst := d.handle(buf[:n], src, i, j); resp != nil {
+			m.countReply(resp)
 			out.WriteToUDPAddrPort(resp, dst)
 		}
 	}

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // testCert builds a throwaway self-signed certificate for 127.0.0.1.

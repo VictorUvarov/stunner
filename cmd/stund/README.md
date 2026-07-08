@@ -1,7 +1,7 @@
 # stund
 
 The server binary — what you actually run. It wires command-line flags to a
-UDP socket and hands it to the [`server`](../../server/) package, which does
+UDP socket and hands it to the [`server`](../../internal/server/) package, which does
 the real work (answering "what's my public address?" queries; see the
 [root README](../../README.md) for why that's useful).
 
@@ -24,6 +24,7 @@ go build ./cmd/stund
 | `-tls-addr` | `:5349` | TLS/DTLS listen address (standard `stuns` port) |
 | `-redirect` | off | `ip:port` for 300 Try Alternate redirects; repeatable, one per address family |
 | `-redirect-domain` | — | ALTERNATE-DOMAIN sent with redirects (TLS/DTLS cert validation) |
+| `-metrics-addr` | off | HTTP address serving Prometheus counters on `/metrics` |
 | `-v` | off | debug logging (logs each handled request) |
 
 With auth enabled, only clients that know a listed username/password get
@@ -50,6 +51,12 @@ Handing the binary a certificate turns on the secure transports — TLS on
 ```sh
 ./stund -tls-cert cert.pem -tls-key key.pem
 ```
+
+The files are re-read automatically when they change on disk (checked at
+most once a second, at handshake time), so certificate renewal — certbot,
+`acme.sh`, whatever writes the new pair — needs no restart or signal. A
+rotation that leaves broken files behind is logged and the previous
+certificate keeps serving.
 
 To drain a server (say, for maintenance), point clients elsewhere and they
 get a 300 Try Alternate instead of an answer:

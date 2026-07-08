@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // startServer runs Serve on a loopback socket and returns a client conn

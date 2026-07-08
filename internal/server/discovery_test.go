@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // startDiscovery builds a Discovery from four loopback sockets on random

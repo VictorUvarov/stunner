@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -17,7 +18,7 @@ import (
 
 	"github.com/pion/dtls/v3"
 
-	"stun/server"
+	"stun/internal/server"
 )
 
 func main() {
@@ -53,6 +54,7 @@ func main() {
 		return nil
 	})
 	flag.StringVar(&alt.Domain, "redirect-domain", "", "ALTERNATE-DOMAIN sent with redirects, for TLS/DTLS certificate validation")
+	metricsAddr := flag.String("metrics-addr", "", "HTTP listen address serving Prometheus counters on /metrics (empty disables)")
 	verbose := flag.Bool("v", false, "enable debug logging")
 	flag.Parse()
 	server.RPS, server.Burst = *rps, 2**rps
@@ -87,7 +89,7 @@ func main() {
 
 	// All serve loops exit nil when their socket is closed, so shutdown is
 	// just closing the sockets; the first result decides the exit code.
-	errc := make(chan error, 5)
+	errc := make(chan error, 6)
 	var closers []io.Closer
 
 	if *altIP != "" {
@@ -126,7 +128,9 @@ func main() {
 	}
 
 	if *tlsCert != "" {
-		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		// The loader re-reads the pair when the files change, so cert
+		// rotation doesn't need a restart; both stacks ask it per handshake.
+		loader, err := newCertLoader(*tlsCert, *tlsKey)
 		if err != nil {
 			slog.Error("bad certificate", "err", err)
 			os.Exit(1)
@@ -134,8 +138,8 @@ func main() {
 		// STUN over TLS is STUN over TCP inside the stream, so ServeTCP
 		// serves it; MinVersion per RFC 8489 §6.2.3's cipher requirements.
 		ln, err := tls.Listen("tcp", *tlsAddr, &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
+			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() },
+			MinVersion:     tls.VersionTLS12,
 		})
 		if err != nil {
 			slog.Error("tls listen failed", "err", err)
@@ -150,7 +154,8 @@ func main() {
 			slog.Error("bad -tls-addr", "err", err)
 			os.Exit(1)
 		}
-		dln, err := dtls.ListenWithOptions("udp", udpAddr, dtls.WithCertificates(cert))
+		dln, err := dtls.ListenWithOptions("udp", udpAddr,
+			dtls.WithGetCertificate(func(*dtls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() }))
 		if err != nil {
 			slog.Error("dtls listen failed", "err", err)
 			os.Exit(1)
@@ -158,6 +163,26 @@ func main() {
 		slog.Info("listening", "dtls", dln.Addr())
 		go func() { errc <- server.ServeDTLS(dln) }()
 		closers = append(closers, dln)
+	}
+
+	if *metricsAddr != "" {
+		ln, err := net.Listen("tcp", *metricsAddr)
+		if err != nil {
+			slog.Error("metrics listen failed", "err", err)
+			os.Exit(1)
+		}
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			server.WriteMetrics(w)
+		})
+		slog.Info("listening", "metrics", ln.Addr())
+		go func() {
+			if err := http.Serve(ln, mux); !errors.Is(err, net.ErrClosed) {
+				errc <- err
+			}
+		}()
+		closers = append(closers, ln)
 	}
 
 	sig := make(chan os.Signal, 1)

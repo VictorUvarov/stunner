@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 func startTCPServer(t *testing.T) *net.TCPConn {

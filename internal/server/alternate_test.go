@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"stun/stunmsg"
+	"stun/internal/stunmsg"
 )
 
 // setAlternate installs a redirect target for the duration of the test.
