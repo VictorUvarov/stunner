@@ -19,7 +19,7 @@ For every datagram received:
 | Valid Binding Request | Binding Success with XOR-MAPPED-ADDRESS = source address |
 | … with unknown comprehension-required attribute | 420 error with UNKNOWN-ATTRIBUTES |
 | … with USERNAME / MESSAGE-INTEGRITY(-SHA256) | Treated as ignorable (no auth), normal success |
-| Non-STUN bytes, malformed framing, bad FINGERPRINT, non-Binding type | Silence (RFC 8489 §6.3) |
+| Non-STUN bytes, malformed framing, bad FINGERPRINT, non-Binding type | Silence ([RFC 8489 §6.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.3)) |
 
 Every response carries SOFTWARE (the `Software` package variable) and a
 FINGERPRINT, and echoes the request's transaction ID.

@@ -1,7 +1,7 @@
 # Design overview
 
 Implementation notes for stund (see [README.md](README.md) for what/why).
-Built from scratch against RFC 8489, stdlib only — `net`, `crypto`,
+Built from scratch against [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489), stdlib only — `net`, `crypto`,
 `encoding/binary` cover everything STUN needs.
 
 This is the living design doc. Every commit updates the **Progress log**
@@ -28,19 +28,19 @@ server/           UDP (later TCP) loop: decode request → build response → se
 ```
 
 `stunmsg` is a pure library with no networking, so it's trivially testable
-against RFC 5769's test vectors. The server layer stays thin: read datagram,
+against [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769)'s test vectors. The server layer stays thin: read datagram,
 parse, respond.
 
 ## Roadmap
 
 1. **Message codec** — header + attribute parse/serialize, XOR-MAPPED-ADDRESS,
-   ERROR-CODE, FINGERPRINT. Verified against RFC 5769 test vectors.
+   ERROR-CODE, FINGERPRINT. Verified against [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) test vectors.
 2. **UDP server** — Binding Request → Binding Success Response. Malformed
    input is dropped silently (per RFC), unknown comprehension-required
    attributes get a 420 error response.
 3. **Hardening** — per-IP rate limiting, graceful shutdown, structured logs,
    TCP listener.
-4. **Maybe later** — RFC 5780 NAT behavior discovery (needs two public IPs),
+4. **Maybe later** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) NAT behavior discovery (needs two public IPs),
    long-term-credential auth. Only if there's a real use.
 
 Skipped deliberately: TURN relaying, TLS/DTLS transport, authentication for the
@@ -49,9 +49,9 @@ the response contains nothing an on-path attacker doesn't already know).
 
 ## References
 
-- RFC 8489 — STUN (current spec, obsoletes 5389)
-- RFC 5769 — test vectors for STUN messages
-- RFC 5780 — NAT behavior discovery using STUN
+- [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — STUN (current spec, obsoletes 5389)
+- [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) — test vectors for STUN messages
+- [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) — NAT behavior discovery using STUN
 
 ## Progress log
 
@@ -59,7 +59,7 @@ the response contains nothing an on-path attacker doesn't already know).
 - **2026-07-07** — Split docs: user-facing README.md, this file now dev-only.
 - **2026-07-07** — Phase 1 done: `stunmsg` codec. Parse/Marshal with strict
   framing checks, XOR-MAPPED-ADDRESS (v4+v6), ERROR-CODE, SOFTWARE,
-  FINGERPRINT add/verify. Tested against RFC 5769 §2.1–2.3 vectors, including
+  FINGERPRINT add/verify. Tested against [RFC 5769 §2.1–2.3](https://datatracker.ietf.org/doc/html/rfc5769#section-2.1) vectors, including
   their non-zero padding bytes. Notable design choices: attributes are kept as
   raw `[]Attr` (typed accessors only where the server needs them), and
   `AddFingerprint` computes the CRC via a `marshal(extraLen)` hook because the

@@ -35,7 +35,7 @@ Stop it with Ctrl-C.
 
 ## What it will and won't do
 
-- ✅ STUN Binding over UDP (the thing WebRTC needs), per RFC 8489
+- ✅ STUN Binding over UDP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
 - ✅ TCP support and rate limiting, later
 - ❌ TURN (media relaying) — different, much heavier protocol; use
   [coturn](https://github.com/coturn/coturn) if you need relaying

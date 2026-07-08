@@ -1,6 +1,6 @@
 # stunmsg
 
-Pure STUN message codec (RFC 8489): parse, build, and serialize messages.
+Pure STUN message codec ([RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)): parse, build, and serialize messages.
 No networking, no state — just bytes in, `Message` out, and back.
 
 ## Usage
@@ -23,7 +23,7 @@ XOR-MAPPED-ADDRESS, ERROR-CODE, SOFTWARE, FINGERPRINT.
 
 ## Correctness
 
-`stunmsg_test.go` checks the package against the RFC 5769 test vectors
+`stunmsg_test.go` checks the package against the [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) test vectors
 byte-for-byte (§2.1 request, §2.2 IPv4 response, §2.3 IPv6 response),
 including FINGERPRINT CRC verification, plus round-trip and
 garbage-rejection tests.
@@ -36,5 +36,5 @@ garbage-rejection tests.
 - The FINGERPRINT CRC is computed with the header length field *already
   counting* the not-yet-appended attribute; `AddFingerprint` handles this.
 - Attribute values are padded to 4 bytes on the wire, but the length field
-  counts the unpadded value. Padding bytes may be non-zero (RFC 5769 uses
+  counts the unpadded value. Padding bytes may be non-zero ([RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) uses
   spaces) and must be ignored, not validated.
