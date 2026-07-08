@@ -72,6 +72,9 @@ func handle(pkt []byte, src netip.AddrPort) []byte {
 	if errResp != nil {
 		return seal(errResp, nil, false)
 	}
+	if resp := redirect(req, src); resp != nil {
+		return seal(resp, key, sha2)
+	}
 	return seal(respond(req, src, ignorable), key, sha2)
 }
 

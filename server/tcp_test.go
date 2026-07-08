@@ -17,8 +17,9 @@ func startTCPServer(t *testing.T) *net.TCPConn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go ServeTCP(ln)
-	t.Cleanup(func() { ln.Close() })
+	done := make(chan struct{})
+	go func() { defer close(done); ServeTCP(ln) }()
+	t.Cleanup(func() { ln.Close(); <-done })
 
 	c, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -32,7 +33,7 @@ func startTCPServer(t *testing.T) *net.TCPConn {
 // readMessage reads one length-framed STUN message off the stream.
 func readMessage(t *testing.T, c net.Conn) []byte {
 	t.Helper()
-	buf := make([]byte, maxTCPMessage)
+	buf := make([]byte, maxConnMessage)
 	if _, err := io.ReadFull(c, buf[:stunmsg.HeaderSize]); err != nil {
 		t.Fatal(err)
 	}

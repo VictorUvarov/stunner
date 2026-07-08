@@ -20,6 +20,10 @@ go build ./cmd/stund
 | `-alt-port` | primary + 1 | alternate port for NAT discovery |
 | `-realm` | off | enables long-term credential auth (RFC 8489 §9.2); needs `-user` |
 | `-user` | — | `username:password` credential, repeatable; needs `-realm` |
+| `-tls-cert` / `-tls-key` | off | certificate + key files; enable `stuns` over TLS *and* DTLS |
+| `-tls-addr` | `:5349` | TLS/DTLS listen address (standard `stuns` port) |
+| `-redirect` | off | `ip:port` for 300 Try Alternate redirects; repeatable, one per address family |
+| `-redirect-domain` | — | ALTERNATE-DOMAIN sent with redirects (TLS/DTLS cert validation) |
 | `-v` | off | debug logging (logs each handled request) |
 
 With auth enabled, only clients that know a listed username/password get
@@ -38,6 +42,20 @@ in `-addr`, e.g.:
 
 ```sh
 ./stund -addr 198.51.100.10:3478 -alt-ip 198.51.100.11
+```
+
+Handing the binary a certificate turns on the secure transports — TLS on
+`-tls-addr`'s TCP port and DTLS on its UDP port, both named `stuns`:
+
+```sh
+./stund -tls-cert cert.pem -tls-key key.pem
+```
+
+To drain a server (say, for maintenance), point clients elsewhere and they
+get a 300 Try Alternate instead of an answer:
+
+```sh
+./stund -redirect 198.51.100.20:3478 -redirect-domain stun.example.org
 ```
 
 Logs go to stderr. Stop it with Ctrl-C (or SIGTERM): that closes the

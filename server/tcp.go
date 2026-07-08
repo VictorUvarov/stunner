@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"time"
@@ -10,32 +9,24 @@ import (
 	"stun/stunmsg"
 )
 
-// maxTCPMessage caps a single message read off a stream.
-// ponytail: 4 KiB fits any Binding request many times over.
-const maxTCPMessage = 4096
+// maxConnMessage caps a single message read off a connection-oriented
+// transport; 4 KiB fits any Binding request many times over.
+const maxConnMessage = 4096
 
-// tcpIdleTimeout is how long a connection may sit between requests.
-const tcpIdleTimeout = 40 * time.Second
+// idleTimeout is how long a connection may sit between requests.
+const idleTimeout = 40 * time.Second
 
 // ServeTCP answers Binding Requests on ln until it is closed (which, like
 // Serve, returns nil — that's the shutdown path). Each connection is handled
 // on its own goroutine and may carry multiple requests back to back: STUN
 // over TCP is self-framing via the header's length field (RFC 8489 §6.2.2).
+//
+// ln may be a TLS listener (tls.NewListener or tls.Listen): STUN over TLS
+// (RFC 8489 §6.2.3, `stuns`, port 5349) is byte-for-byte STUN over TCP
+// inside the secure stream, so the serve loop is identical and the
+// handshake happens under the same idle deadline as the first read.
 func ServeTCP(ln net.Listener) error {
-	var lim *limiter
-	if RPS > 0 {
-		lim = newLimiter(RPS, Burst)
-	}
-	for {
-		c, err := ln.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			return err
-		}
-		go serveConn(c, lim)
-	}
+	return acceptLoop(ln, serveConn)
 }
 
 // serveConn reads framed STUN messages off one connection and answers them.
@@ -45,14 +36,14 @@ func ServeTCP(ln net.Listener) error {
 func serveConn(c net.Conn, lim *limiter) {
 	defer c.Close()
 	src := c.RemoteAddr().(*net.TCPAddr).AddrPort()
-	buf := make([]byte, maxTCPMessage)
+	buf := make([]byte, maxConnMessage)
 	for {
-		c.SetReadDeadline(time.Now().Add(tcpIdleTimeout))
+		c.SetReadDeadline(time.Now().Add(idleTimeout))
 		if _, err := io.ReadFull(c, buf[:stunmsg.HeaderSize]); err != nil {
 			return
 		}
 		n := stunmsg.HeaderSize + int(binary.BigEndian.Uint16(buf[2:4]))
-		if n > maxTCPMessage {
+		if n > maxConnMessage {
 			return
 		}
 		if _, err := io.ReadFull(c, buf[stunmsg.HeaderSize:n]); err != nil {

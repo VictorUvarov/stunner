@@ -1,8 +1,9 @@
-// Command stund runs a STUN server (RFC 8489 Binding over UDP and TCP,
-// optional RFC 5780 NAT behavior discovery).
+// Command stund runs a STUN server (RFC 8489 Binding over UDP, TCP, TLS,
+// and DTLS, optional RFC 5780 NAT behavior discovery).
 package main
 
 import (
+	"crypto/tls"
 	"errors"
 	"flag"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/pion/dtls/v3"
 
 	"stun/server"
 )
@@ -33,6 +36,23 @@ func main() {
 		users[u] = p
 		return nil
 	})
+	tlsAddr := flag.String("tls-addr", ":5349", "TLS and DTLS listen address (active with -tls-cert)")
+	tlsCert := flag.String("tls-cert", "", "certificate file; with -tls-key, serves stuns over TLS and DTLS")
+	tlsKey := flag.String("tls-key", "", "private key file (needs -tls-cert)")
+	var alt server.AlternateServer
+	flag.Func("redirect", "ip:port to send clients to via 300 Try Alternate; repeatable, one per address family", func(s string) error {
+		ap, err := netip.ParseAddrPort(s)
+		if err != nil {
+			return err
+		}
+		if ap.Addr().Unmap().Is6() {
+			alt.V6 = ap
+		} else {
+			alt.V4 = ap
+		}
+		return nil
+	})
+	flag.StringVar(&alt.Domain, "redirect-domain", "", "ALTERNATE-DOMAIN sent with redirects, for TLS/DTLS certificate validation")
 	verbose := flag.Bool("v", false, "enable debug logging")
 	flag.Parse()
 	server.RPS, server.Burst = *rps, 2**rps
@@ -49,13 +69,25 @@ func main() {
 		server.Credentials = auth
 		slog.Info("long-term credential auth enabled", "realm", *realm, "users", len(users))
 	}
+	if alt.Domain != "" && !alt.V4.IsValid() && !alt.V6.IsValid() {
+		slog.Error("-redirect-domain needs at least one -redirect target")
+		os.Exit(1)
+	}
+	if alt.V4.IsValid() || alt.V6.IsValid() {
+		server.Alternate = &alt
+		slog.Info("redirecting via 300 Try Alternate", "v4", alt.V4, "v6", alt.V6, "domain", alt.Domain)
+	}
+	if (*tlsCert != "") != (*tlsKey != "") {
+		slog.Error("TLS needs both -tls-cert and -tls-key")
+		os.Exit(1)
+	}
 	if *verbose {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
-	// Both serve loops exit nil when their socket is closed, so shutdown is
+	// All serve loops exit nil when their socket is closed, so shutdown is
 	// just closing the sockets; the first result decides the exit code.
-	errc := make(chan error, 3)
+	errc := make(chan error, 5)
 	var closers []io.Closer
 
 	if *altIP != "" {
@@ -91,6 +123,41 @@ func main() {
 		slog.Info("listening", "tcp", ln.Addr())
 		go func() { errc <- server.ServeTCP(ln) }()
 		closers = append(closers, ln)
+	}
+
+	if *tlsCert != "" {
+		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			slog.Error("bad certificate", "err", err)
+			os.Exit(1)
+		}
+		// STUN over TLS is STUN over TCP inside the stream, so ServeTCP
+		// serves it; MinVersion per RFC 8489 §6.2.3's cipher requirements.
+		ln, err := tls.Listen("tcp", *tlsAddr, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		if err != nil {
+			slog.Error("tls listen failed", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("listening", "tls", ln.Addr())
+		go func() { errc <- server.ServeTCP(ln) }()
+		closers = append(closers, ln)
+
+		udpAddr, err := net.ResolveUDPAddr("udp", *tlsAddr)
+		if err != nil {
+			slog.Error("bad -tls-addr", "err", err)
+			os.Exit(1)
+		}
+		dln, err := dtls.ListenWithOptions("udp", udpAddr, dtls.WithCertificates(cert))
+		if err != nil {
+			slog.Error("dtls listen failed", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("listening", "dtls", dln.Addr())
+		go func() { errc <- server.ServeDTLS(dln) }()
+		closers = append(closers, dln)
 	}
 
 	sig := make(chan os.Signal, 1)

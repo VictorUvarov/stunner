@@ -1,10 +1,10 @@
 # Design overview
 
 Implementation notes for stund (see [README.md](README.md) for what/why).
-Built from scratch against [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489). Stdlib except one Go-team-maintained
-dependency: `golang.org/x/text/secure/precis` for the OpaqueString profile
-([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265)) the auth spec requires — Unicode normalization is not worth
-hand-rolling.
+Built from scratch against [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489). Stdlib except two dependencies where
+hand-rolling would be a project of its own: `golang.org/x/text/secure/precis`
+for the OpaqueString profile ([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265)) the auth spec requires, and
+`github.com/pion/dtls` for the DTLS transport (Go ships TLS but no DTLS).
 
 This is the living design doc. Every commit updates the **Progress log**
 below and, when the design changes, the sections above it.
@@ -60,9 +60,9 @@ deferred items live at the bottom of this list until they're done.
    string preparation.~~ Done.
 7. ~~**RFC 5780, complete** — PADDING and RESPONSE-PORT so clients can run
    fragment and binding-lifetime tests.~~ Done.
-8. **TLS + DTLS transports** — RFC 8489 §6.2.3 (`stuns`, port 5349),
+8. ~~**TLS + DTLS transports** — RFC 8489 §6.2.3 (`stuns`, port 5349),
    including the ALTERNATE-SERVER / ALTERNATE-DOMAIN redirect machinery
-   (§10, §14.9, §14.15).
+   (§10, §14.15, §14.16).~~ Done.
 9. **Full §6 protocol conformance sweep** — walk RFC 8489 front to back
    and close every remaining MUST/SHOULD (e.g. DNS discovery notes,
    FINGERPRINT/demux corner cases), documenting each verdict here.
@@ -196,3 +196,22 @@ different threat model, not part of STUN itself).
   runs": serve-loop goroutines are now joined in test cleanup, and the auth
   handshake loops became subtests so each iteration's server is torn down
   before the next writes `Credentials`.
+- **2026-07-08** — TLS + DTLS transports and ALTERNATE-SERVER (phase 8).
+  TLS (§6.2.3) cost nothing new in `server`: STUN over TLS is STUN over TCP
+  inside the stream, so `ServeTCP` over a `tls.Listen` listener is the
+  feature; `stund` grew `-tls-addr/-tls-cert/-tls-key` (TLS 1.2 minimum;
+  Go's stack lacks the RFC's mandated DHE suite but has all the ECDHE
+  ones). DTLS is `ServeDTLS` over [pion/dtls](https://github.com/pion/dtls)
+  — the second non-stdlib dependency, taken for the same reason as x/text —
+  with hybrid semantics: TCP's lifecycle (per-association goroutine, 40s
+  idle hangup, shared accept loop), UDP's message handling (records frame
+  one message; bad input drops without killing the association).
+  ALTERNATE-SERVER (§10): opt-in `Alternate` package var / `-redirect`
+  flag; 300 Try Alternate with per-family targets (family without a target
+  is served normally, as §10's same-family rule demands), optional
+  ALTERNATE-DOMAIN (§14.16), and redirect-after-auth so the 300 is
+  integrity-protected whenever auth is on. Discovery never redirects.
+  Verified by loopback Go tests (TLS round trip, DTLS round trip +
+  garbage-record survival, redirect variants) and a new independent
+  `test/tls_client.py`; DTLS end-to-end rides the pion loopback tests since
+  Python has no stdlib DTLS.

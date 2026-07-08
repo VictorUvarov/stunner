@@ -10,7 +10,7 @@ the envelope it came in.
 
 ## API
 
-Two entry points, one per transport:
+One entry point per transport, all with the same contract:
 
 ```go
 conn, _ := net.ListenUDP("udp", addr)
@@ -18,6 +18,12 @@ err := server.Serve(conn)     // blocks; returns nil when conn is closed
 
 ln, _ := net.Listen("tcp", addr)
 err = server.ServeTCP(ln)     // same contract, one goroutine per connection
+
+tln, _ := tls.Listen("tcp", addr, tlsConfig)
+err = server.ServeTCP(tln)    // STUN over TLS is STUN over TCP in a secure stream
+
+dln, _ := dtls.ListenWithOptions("udp", udpAddr, dtls.WithCertificates(cert))
+err = server.ServeDTLS(dln)   // DTLS: connection lifecycle like TCP, framing like UDP
 ```
 
 Shutdown model: there is no Stop method — close the socket/listener and the
@@ -91,6 +97,44 @@ skips a bad datagram: after a framing error there's no way to find the next
 message. So on TCP, anything that would be "silence" on UDP (malformed
 message, bad checksum, oversize frame, rate-limit hit) closes the
 connection instead. Idle connections are dropped after 40s.
+
+## Secure transports: TLS and DTLS (`stuns`)
+
+[RFC 8489 §6.2.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.2.3)
+runs the same exchanges inside an encrypted session on port 5349. TLS needs
+no code of its own: a `tls.Listen` listener handed to `ServeTCP` is the
+entire feature, with the handshake bounded by the same idle deadline as a
+first read. DTLS (TLS's datagram sibling) gets `ServeDTLS`, backed by
+[pion/dtls](https://github.com/pion/dtls) — the one dependency this package
+takes beyond the stdlib, because Go ships no DTLS. Its semantics are a
+hybrid: connection lifecycle like TCP (per-association goroutine, 40s idle
+hangup), but message handling like UDP — each DTLS record frames exactly
+one message, so malformed input is dropped and the association survives.
+
+One §6.2.3 note: the RFC's mandatory-to-implement cipher list includes a
+DHE suite that Go's TLS stack deliberately omits; the equally mandated
+ECDHE suites are all there, which every real client negotiates.
+
+## Redirects: ALTERNATE-SERVER (opt-in)
+
+A server that wants clients to go elsewhere — draining for maintenance,
+splitting load — sets the `Alternate` package variable, and every Binding
+Request draws a 300 (Try Alternate) error naming the replacement
+([RFC 8489 §10](https://datatracker.ietf.org/doc/html/rfc8489#section-10)):
+
+```go
+server.Alternate = &server.AlternateServer{
+    V4:     netip.MustParseAddrPort("198.51.100.20:3478"),
+    Domain: "stun.example.org", // ALTERNATE-DOMAIN, for TLS/DTLS cert checks
+}
+```
+
+The RFC requires the ALTERNATE-SERVER address to match the client's address
+family, so targets are configured per family and requests from a family
+with no target are served normally. With auth enabled, the redirect happens
+only after credentials verify and the 300 is integrity-protected — an
+off-path attacker can't forge one. The NAT discovery usage never redirects:
+its whole value is this server's specific four-socket topology.
 
 ## NAT behavior discovery (RFC 5780)
 
