@@ -1,4 +1,6 @@
-# stund
+# stunner
+
+![Stunner Image](./static/stunner.png)
 
 A small, fast STUN server written in Go. No dependencies, one binary.
 
