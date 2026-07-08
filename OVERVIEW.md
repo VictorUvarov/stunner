@@ -57,3 +57,12 @@ the response contains nothing an on-path attacker doesn't already know).
 
 - **2026-07-07** — Project start: repo, Go module, this overview.
 - **2026-07-07** — Split docs: user-facing README.md, this file now dev-only.
+- **2026-07-07** — Phase 1 done: `stunmsg` codec. Parse/Marshal with strict
+  framing checks, XOR-MAPPED-ADDRESS (v4+v6), ERROR-CODE, SOFTWARE,
+  FINGERPRINT add/verify. Tested against RFC 5769 §2.1–2.3 vectors, including
+  their non-zero padding bytes. Notable design choices: attributes are kept as
+  raw `[]Attr` (typed accessors only where the server needs them), and
+  `AddFingerprint` computes the CRC via a `marshal(extraLen)` hook because the
+  spec requires the header length to already count the fingerprint attribute.
+  MESSAGE-INTEGRITY is parsed as an opaque attribute — validation comes only
+  if auth ever lands (roadmap #4).
