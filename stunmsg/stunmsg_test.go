@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -32,13 +33,7 @@ var (
 )
 
 func unhex(s string) []byte {
-	clean := ""
-	for _, r := range s {
-		if r != ' ' && r != '\n' && r != '\t' {
-			clean += string(r)
-		}
-	}
-	b, err := hex.DecodeString(clean)
+	b, err := hex.DecodeString(strings.NewReplacer(" ", "", "\n", "", "\t", "").Replace(s))
 	if err != nil {
 		panic(err)
 	}
@@ -128,9 +123,9 @@ func TestRejectsGarbage(t *testing.T) {
 	cases := [][]byte{
 		nil,
 		[]byte("hello"),
-		bytes.Repeat([]byte{0}, 20),                   // zero magic cookie
-		append([]byte{0xC0, 1}, vecIPv4[2:]...),       // wrong leading bits
-		vecIPv4[:len(vecIPv4)-1],                      // truncated
+		bytes.Repeat([]byte{0}, 20),             // zero magic cookie
+		append([]byte{0xC0, 1}, vecIPv4[2:]...), // wrong leading bits
+		vecIPv4[:len(vecIPv4)-1],                // truncated
 		append(append([]byte{}, vecIPv4...), 0, 0, 0), // trailing junk
 	}
 	for i, c := range cases {

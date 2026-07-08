@@ -2,7 +2,6 @@
 package server
 
 import (
-	"encoding/binary"
 	"errors"
 	"log/slog"
 	"net"
@@ -19,9 +18,9 @@ var Software = "stund"
 // on (auth is not implemented; a Binding response needs none of them). Any
 // other comprehension-required attribute triggers a 420 per RFC 8489 §6.3.1.
 var ignorable = map[uint16]bool{
-	0x0006: true, // USERNAME
-	0x0008: true, // MESSAGE-INTEGRITY
-	0x001C: true, // MESSAGE-INTEGRITY-SHA256
+	stunmsg.AttrUsername:               true,
+	stunmsg.AttrMessageIntegrity:       true,
+	stunmsg.AttrMessageIntegritySHA256: true,
 }
 
 // Serve answers Binding Requests on conn until it is closed, replying to
@@ -71,11 +70,7 @@ func handle(pkt []byte, src netip.AddrPort) []byte {
 		slog.Debug("unknown attributes", "src", src, "attrs", unknown)
 		resp.Type = stunmsg.BindingError
 		resp.AddErrorCode(420, "Unknown Attribute")
-		v := make([]byte, 2*len(unknown))
-		for i, t := range unknown {
-			binary.BigEndian.PutUint16(v[2*i:], t)
-		}
-		resp.Add(stunmsg.AttrUnknownAttributes, v)
+		resp.AddUnknownAttributes(unknown)
 	} else {
 		slog.Debug("binding", "src", src)
 		resp.Type = stunmsg.BindingSuccess
@@ -91,7 +86,7 @@ func handle(pkt []byte, src netip.AddrPort) []byte {
 func unknownRequired(m *stunmsg.Message) []uint16 {
 	var out []uint16
 	for _, a := range m.Attrs {
-		if a.Type < 0x8000 && !ignorable[a.Type] {
+		if stunmsg.Required(a.Type) && !ignorable[a.Type] {
 			out = append(out, a.Type)
 		}
 	}

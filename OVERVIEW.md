@@ -24,7 +24,7 @@ transit.
 ```
 cmd/stund/        main: flags, listener setup, shutdown
 stunmsg/          message parse/serialize: header, attributes (no I/O)
-server/           UDP (later TCP) loop: decode request → build response → send
+server/           UDP and TCP loops: decode request → build response → send
 ```
 
 `stunmsg` is a pure library with no networking, so it's trivially testable
@@ -40,12 +40,15 @@ parse, respond.
    attributes get a 420 error response.
 3. ~~**Hardening** — per-IP rate limiting, graceful shutdown, structured
    logs, TCP listener.~~ Done.
-4. **Maybe later** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) NAT behavior discovery (needs two public IPs),
-   long-term-credential auth. Only if there's a real use.
+4. **NAT behavior discovery** — [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780):
+   OTHER-ADDRESS, RESPONSE-ORIGIN, CHANGE-REQUEST, answering from alternate
+   port/IP so clients can classify their NAT. Full mode needs two public IPs.
+5. **Auth** — RFC 8489 long-term credentials: 401 challenge with REALM/NONCE,
+   MESSAGE-INTEGRITY(-SHA256) validation. Opt-in; anonymous binding stays the
+   default (public STUN servers run unauthenticated — the response contains
+   nothing an on-path attacker doesn't already know).
 
-Skipped deliberately: TURN relaying, TLS/DTLS transport, authentication for the
-basic binding service (public STUN servers like Google's run unauthenticated —
-the response contains nothing an on-path attacker doesn't already know).
+Skipped deliberately: TURN relaying, TLS/DTLS transport.
 
 ## References
 
@@ -97,3 +100,8 @@ the response contains nothing an on-path attacker doesn't already know).
   `stund` now listens on both transports by default (`-tcp=false` to
   disable). Verified with loopback tests and a Python TCP client against
   the binary.
+- **2026-07-07** — Cleanup pass before phases 4–5. Moved wire-format
+  knowledge out of `server` into `stunmsg`: attribute constants for
+  USERNAME / MESSAGE-INTEGRITY(-SHA256), `AddUnknownAttributes`, and
+  `Required()` for the comprehension-required check. Roadmap updated: NAT
+  discovery and auth are now planned work, not "maybe later".

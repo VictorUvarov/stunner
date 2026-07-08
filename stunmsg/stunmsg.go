@@ -18,12 +18,19 @@ const (
 
 // Attribute types (comprehension-required < 0x8000, optional >= 0x8000).
 const (
-	AttrErrorCode         = 0x0009
-	AttrUnknownAttributes = 0x000A
-	AttrXORMappedAddress  = 0x0020
-	AttrSoftware          = 0x8022
-	AttrFingerprint       = 0x8028
+	AttrUsername               = 0x0006
+	AttrMessageIntegrity       = 0x0008
+	AttrErrorCode              = 0x0009
+	AttrUnknownAttributes      = 0x000A
+	AttrMessageIntegritySHA256 = 0x001C
+	AttrXORMappedAddress       = 0x0020
+	AttrSoftware               = 0x8022
+	AttrFingerprint            = 0x8028
 )
+
+// Required reports whether attribute type t is comprehension-required: a
+// receiver that doesn't understand it must reject the message (RFC 8489 §14).
+func Required(t uint16) bool { return t < 0x8000 }
 
 // HeaderSize is the fixed STUN header length in bytes.
 const HeaderSize = 20
@@ -98,13 +105,14 @@ func (m *Message) marshal(extraLen int) []byte {
 	binary.BigEndian.PutUint16(buf[2:4], uint16(length))
 	binary.BigEndian.PutUint32(buf[4:8], magicCookie)
 	copy(buf[8:], m.TransactionID[:])
+	var pad [3]byte
 	for _, a := range m.Attrs {
 		var hdr [4]byte
 		binary.BigEndian.PutUint16(hdr[0:2], a.Type)
 		binary.BigEndian.PutUint16(hdr[2:4], uint16(len(a.Value)))
 		buf = append(buf, hdr[:]...)
 		buf = append(buf, a.Value...)
-		buf = append(buf, make([]byte, (4-len(a.Value)%4)%4)...)
+		buf = append(buf, pad[:(4-len(a.Value)%4)%4]...)
 	}
 	return buf
 }
@@ -186,6 +194,16 @@ func (m *Message) AddErrorCode(code int, reason string) {
 // AddSoftware appends a SOFTWARE attribute identifying this server.
 func (m *Message) AddSoftware(name string) {
 	m.Add(AttrSoftware, []byte(name))
+}
+
+// AddUnknownAttributes appends an UNKNOWN-ATTRIBUTES attribute listing the
+// given types; it accompanies a 420 error response.
+func (m *Message) AddUnknownAttributes(types []uint16) {
+	v := make([]byte, 2*len(types))
+	for i, t := range types {
+		binary.BigEndian.PutUint16(v[2*i:], t)
+	}
+	m.Add(AttrUnknownAttributes, v)
 }
 
 // AddFingerprint appends a FINGERPRINT attribute; it must be added last.

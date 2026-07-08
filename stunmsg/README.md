@@ -42,7 +42,7 @@ out := resp.Marshal()
 
 Attributes are exposed as raw `[]Attr` (type + value bytes); typed helpers
 exist only for the attributes a Binding server actually produces or reads:
-XOR-MAPPED-ADDRESS, ERROR-CODE, SOFTWARE, FINGERPRINT.
+XOR-MAPPED-ADDRESS, ERROR-CODE, UNKNOWN-ATTRIBUTES, SOFTWARE, FINGERPRINT.
 
 ## How we know it's correct
 
