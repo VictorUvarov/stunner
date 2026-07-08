@@ -17,6 +17,19 @@ public address. A STUN server tells them: a device asks *"what's my IP and
 port from the outside?"* and the server answers. That one answer is usually
 all it takes for two devices to connect directly to each other.
 
+```mermaid
+sequenceDiagram
+    participant C as Client<br/>(behind NAT)
+    participant N as Home router<br/>(NAT)
+    participant S as stunner
+    C->>N: Binding request
+    Note over N: rewrites source to<br/>public IP:port
+    N->>S: Binding request
+    S-->>N: Binding response<br/>XOR-MAPPED-ADDRESS = public IP:port
+    N-->>C: Binding response
+    Note over C: now knows its own<br/>public address
+```
+
 Reasons to run your own instead of using a public one:
 
 - **Privacy** — public STUN servers see the IP of every user of your app.
@@ -26,22 +39,15 @@ Reasons to run your own instead of using a public one:
 
 ## Quick start
 
-```sh
-git clone <this repo> && cd stun
-go build ./cmd/stund
-./stund              # listens on :3478, the standard STUN port
-./stund -addr :3479 -v   # custom port, debug logging
-```
+Build it from source and run it — [CONTRIBUTING.md](CONTRIBUTING.md) has the
+one-liner. With no flags it listens on `:3478`, the standard STUN port; `-addr`
+picks a different port and `-v` turns on debug logging. Stop it with Ctrl-C.
 
 Then point your WebRTC config (or any STUN client) at `stun:your-host:3478`.
-Stop it with Ctrl-C.
 
-A client ships in the same repo, handy for checking a deployment:
-
-```sh
-go build ./cmd/stunc
-./stunc your-host        # prints the address the server saw you as
-```
+A companion client, `stunc`, ships in the same repo — handy for checking a
+deployment, it prints back the address the server saw you as. The
+[flag reference](cmd/stund/README.md) covers everything `stund` accepts.
 
 ## What it will and won't do
 
@@ -55,6 +61,16 @@ go build ./cmd/stunc
 - ✅ Prometheus counters (`-metrics-addr`)
 - ❌ TURN (media relaying) — different, much heavier protocol; use
   [coturn](https://github.com/coturn/coturn) if you need relaying
+
+### How it compares
+
+[coturn](https://github.com/coturn/coturn) is the usual open-source choice, and
+the right one if you need TURN media relaying — a mature C server that speaks
+STUN and TURN both, with the configuration surface to match. stunner
+deliberately does less: STUN only, in Go, shipping as one static binary with
+sensible defaults, so there's next to nothing to configure and nothing to link
+against. Against a public server (Google's `stun.l.google.com`, say), running
+your own is the privacy and reliability trade described above.
 
 ## Deployment
 
@@ -91,12 +107,16 @@ that don't.
 request/reply/error counters in Prometheus text format on `/metrics`. Bind
 it to localhost or an internal interface; it has no auth of its own.
 
-## For developers
+## Documentation
 
-Design, wire-format notes, roadmap, and a per-commit progress log live in
-[OVERVIEW.md](OVERVIEW.md). To build, run, and test locally, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+- [OVERVIEW.md](OVERVIEW.md) — design, wire-format notes, roadmap, and a
+  per-commit progress log
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, run, and test locally
+- [cmd/stund/README.md](cmd/stund/README.md) — the full `stund` flag reference
+- [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — the STUN spec this
+  implements, and [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) for
+  NAT behavior discovery
 
 ## License
 
-TBD
+[MIT](LICENSE)

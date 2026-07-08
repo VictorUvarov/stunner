@@ -8,6 +8,37 @@ hand.
 Design notes, wire-format details, and the roadmap live in
 [OVERVIEW.md](OVERVIEW.md).
 
+## Building
+
+```sh
+just build                 # compiles stund into ./bin
+```
+
+Or the plain Go commands the recipes wrap, if you'd rather not install `just`:
+
+```sh
+go build ./cmd/stund       # the server
+go build ./cmd/stunc       # the client
+```
+
+Run the server straight out of the source tree — with no flags it listens on
+`:3478`, the standard STUN port; `-addr` picks a different port and `-v` turns
+on debug logging:
+
+```sh
+./stund
+./stund -addr :3479 -v
+```
+
+`stunc` reports the address the server saw you as, a quick way to probe a
+deployment:
+
+```sh
+./stunc your-host
+```
+
+The full flag reference lives in [cmd/stund/README.md](cmd/stund/README.md).
+
 ## Running the server
 
 | Recipe | What it does |
@@ -61,7 +92,6 @@ just lint   # go vet + gofmt check
 
 | Recipe | What it does |
 |---|---|
-| `just build` | Compile `stund` into `./bin` |
 | `just cert` | Generate a self-signed cert/key in `./dev` for local TLS/DTLS |
 | `just clean` | Remove `./bin` and generated dev certs |
 
