@@ -28,6 +28,7 @@ returns. That's the whole lifecycle.
 | … containing an attribute we're required to understand but don't | Error 420 listing the offending attributes, so the client knows why |
 | … containing auth attributes (USERNAME, MESSAGE-INTEGRITY) | Ignored — this server doesn't do auth — and answered normally |
 | Anything else: random non-STUN bytes, corrupt messages, bad checksums | Silence |
+| A source IP over its rate budget (`RPS`/`Burst` package vars) | Silence |
 
 The silence rule comes from [RFC 8489 §6.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.3):
 answering broken input would let attackers use the server as a traffic

@@ -14,6 +14,7 @@ go build ./cmd/stund
 | Flag | Default | Meaning |
 |---|---|---|
 | `-addr` | `:3478` | UDP listen address |
+| `-rps` | `10` | per-IP request rate limit, with 2× burst headroom (`0` disables) |
 | `-v` | off | debug logging (logs each handled request) |
 
 Logs go to stderr. Stop it with Ctrl-C (or SIGTERM): that closes the

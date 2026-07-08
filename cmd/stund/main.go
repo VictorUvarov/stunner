@@ -14,8 +14,10 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":3478", "UDP listen address")
+	rps := flag.Float64("rps", 10, "per-IP request rate limit (0 disables)")
 	verbose := flag.Bool("v", false, "enable debug logging")
 	flag.Parse()
+	server.RPS, server.Burst = *rps, 2**rps
 	if *verbose {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}

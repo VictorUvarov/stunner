@@ -83,3 +83,9 @@ the response contains nothing an on-path attacker doesn't already know).
   now opens with plain-language context (what a STUN message is, what the
   Binding service does, why XOR/FINGERPRINT exist) before the reference
   material. RFC mentions are links.
+- **2026-07-07** — Per-IP rate limiting (phase 3, part 1). Token bucket per
+  source IP (`server/ratelimit.go`), default 10 rps + 20 burst, `-rps` flag,
+  disabled with 0. Over-budget packets are dropped without a reply — a
+  response would spend exactly the bandwidth the limit protects. Buckets
+  idle past full refill are pruned at most once a minute, under the same
+  lock. Deliberately one mutex + map; shard if it ever shows in a profile.

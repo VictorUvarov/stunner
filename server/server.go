@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"time"
 
 	"stun/stunmsg"
 )
@@ -25,8 +26,14 @@ var ignorable = map[uint16]bool{
 
 // Serve answers Binding Requests on conn until it is closed, replying to
 // each with the source address the request arrived from. A closed conn
-// returns nil, so shutdown is: close the conn.
+// returns nil, so shutdown is: close the conn. Sources over their rate
+// budget (see RPS/Burst) are dropped without a reply — answering them
+// would spend the bandwidth the limit is there to protect.
 func Serve(conn *net.UDPConn) error {
+	var lim *limiter
+	if RPS > 0 {
+		lim = newLimiter(RPS, Burst)
+	}
 	buf := make([]byte, 1500)
 	for {
 		n, src, err := conn.ReadFromUDPAddrPort(buf)
@@ -35,6 +42,9 @@ func Serve(conn *net.UDPConn) error {
 				return nil
 			}
 			return err
+		}
+		if !lim.allow(src.Addr(), time.Now()) {
+			continue
 		}
 		if resp := handle(buf[:n], src); resp != nil {
 			if _, err := conn.WriteToUDPAddrPort(resp, src); err != nil {
