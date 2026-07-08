@@ -1,12 +1,11 @@
 # server
 
-The actual STUN service. The job is almost comically simple: a device behind
-a home router doesn't know what IP address the outside world sees it as.
-So it sends this server a **Binding Request** ("what's my address?"), and
-the server replies with the address and port the request *arrived from* —
-which is exactly the public-facing address the client wanted to know.
-No accounts, no sessions, no stored state: every request is answered from
-the envelope it came in.
+The STUN service itself. The job is small. A device behind a home router
+doesn't know what IP address the outside world sees it as, so it sends this
+server a **Binding Request** ("what's my address?"), and the server replies
+with the address and port the request arrived from. That's the public-facing
+address the client was after. There are no accounts, no sessions, and no
+stored state; every request is answered from the envelope it came in.
 
 ## API
 
@@ -26,8 +25,8 @@ dln, _ := dtls.ListenWithOptions("udp", udpAddr, dtls.WithCertificates(cert))
 err = server.ServeDTLS(dln)   // DTLS: connection lifecycle like TCP, framing like UDP
 ```
 
-Shutdown model: there is no Stop method — close the socket/listener and the
-serve loop returns. That's the whole lifecycle.
+There is no Stop method. Close the socket or listener and the serve loop
+returns. That's the whole lifecycle.
 
 ## What it does with each packet
 
@@ -41,24 +40,24 @@ serve loop returns. That's the whole lifecycle.
 | Anything else: random non-STUN bytes, corrupt messages, bad checksums | Silence |
 | A source IP over its rate budget (`RPS`/`Burst` package vars) | Silence |
 
-The silence rule comes from [RFC 8489 §6.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.3):
-answering broken input would let attackers use the server as a traffic
+The silence rule comes from [RFC 8489 §6.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.3).
+Answering broken input would let attackers use the server as a traffic
 reflector, and STUN ports see plenty of stray internet noise.
 
-Every response carries a SOFTWARE attribute (the `Software` package
-variable), a FINGERPRINT checksum, and echoes the request's transaction ID
-so the client can match it to what it sent.
+Every response carries a SOFTWARE attribute (the `Software` package variable)
+and a FINGERPRINT checksum, and echoes the request's transaction ID so the
+client can match it to what it sent.
 
-Replies go out the same socket the request came in on. That matters: the
-client is waiting for an answer from the exact ip:port it messaged, and its
-router will only let the reply through on that path.
+Replies go out the same socket the request came in on. That matters, because
+the client is waiting for an answer from the exact ip:port it messaged, and
+its router will only let the reply through on that path.
 
 ## Authentication (opt-in)
 
-Public STUN servers run unauthenticated — the response contains nothing an
-on-path observer doesn't already know. But if you want to restrict who may
-use the server, set the `Credentials` package variable and every request
-must prove knowledge of a username/password using
+Public STUN servers run unauthenticated, since the response contains nothing
+an on-path observer doesn't already know. But if you want to restrict who may
+use the server, set the `Credentials` package variable and every request has
+to prove knowledge of a username/password using
 [RFC 8489 §9.2](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2)
 long-term credentials:
 
@@ -67,42 +66,42 @@ auth, err := server.NewAuth("example.org", map[string]string{"alice": "s3cret"})
 server.Credentials = auth
 ```
 
-The exchange is challenge/response. A first, unauthenticated request draws
-a 401 carrying the realm, a nonce, and the password algorithms the server
-offers (SHA-256 preferred, MD5 for legacy clients). The client retries with
-USERNAME (or USERHASH, for username anonymity), REALM, NONCE, its algorithm
-choice, and a MESSAGE-INTEGRITY(-SHA256) HMAC keyed by hash(user:realm:
-password). Expired nonces draw a 438 with a fresh one — but only after the
-credentials check out; a bad password always draws another 401. Responses
-are signed with MESSAGE-INTEGRITY-SHA256 when the client negotiated an
-algorithm, legacy MESSAGE-INTEGRITY otherwise, exactly as
+The exchange is challenge/response. A first, unauthenticated request draws a
+401 carrying the realm, a nonce, and the password algorithms the server offers
+(SHA-256 preferred, MD5 for legacy clients). The client retries with USERNAME
+(or USERHASH, for username anonymity), REALM, NONCE, its algorithm choice, and
+a MESSAGE-INTEGRITY(-SHA256) HMAC keyed by hash(user:realm:password). An
+expired nonce draws a 438 with a fresh one, but only after the credentials
+check out; a bad password always draws another 401. Responses are signed with
+MESSAGE-INTEGRITY-SHA256 when the client negotiated an algorithm, and legacy
+MESSAGE-INTEGRITY otherwise, as
 [§9.2.4](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2.4)
 prescribes.
 
-Bid-down protection: every nonce starts with the RFC's "nonce cookie" —
-a magic string plus feature bits covering password-algorithm negotiation
-and username anonymity. An on-path attacker who strips those bits to force
-weaker auth invalidates the nonce, and the downgrade dies with a 438.
+Bid-down protection: every nonce starts with the RFC's "nonce cookie", a magic
+string plus feature bits covering password-algorithm negotiation and username
+anonymity. An on-path attacker who strips those bits to force weaker auth
+invalidates the nonce, and the downgrade dies with a 438.
 
-One wire-format subtlety: the HMAC covers only what precedes it, so
+There's one wire-format subtlety. The HMAC covers only what precedes it, so
 attributes *after* MESSAGE-INTEGRITY(-SHA256) could have been appended by
-anyone without invalidating the signature. The server discards them on
-receipt (only FINGERPRINT, which must trail, survives), as
+anyone without invalidating the signature. The server discards them on receipt
+(only FINGERPRINT, which must trail, survives), as
 [RFC 8489 §9](https://datatracker.ietf.org/doc/html/rfc8489#section-9)
-requires — nothing ever acts on unauthenticated trailing attributes.
+requires; nothing ever acts on unauthenticated trailing attributes.
 
 Nonces are stateless: an expiry timestamp plus an HMAC under a per-process
-random secret (5 minute lifetime). Nothing is stored per client, so the
-nonce table can't be flooded; a server restart just costs clients one extra
+random secret, with a 5 minute lifetime. Nothing is stored per client, so the
+nonce table can't be flooded, and a server restart just costs clients one extra
 438 round trip. Realm, usernames, and passwords are run through the
 OpaqueString profile ([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265))
-at setup, and only derived keys are kept in memory — raw passwords are not.
+at setup, and only derived keys are kept in memory. Raw passwords are not.
 
 ## Classic clients: RFC 3489 backwards compatibility
 
-The original 2003 STUN spec had no magic cookie — those four bytes were
-part of a 128-bit transaction ID — so a cookie-less Binding Request marks
-a classic client ([RFC 5389 §12.2](https://datatracker.ietf.org/doc/html/rfc5389#section-12.2)),
+The original 2003 STUN spec had no magic cookie; those four bytes were part
+of a 128-bit transaction ID. So a cookie-less Binding Request marks a classic
+client ([RFC 5389 §12.2](https://datatracker.ietf.org/doc/html/rfc5389#section-12.2)),
 and stand-alone servers SHOULD keep serving them
 ([RFC 8489 §12](https://datatracker.ietf.org/doc/html/rfc8489#section-12)).
 Classic responses differ on three points, all forced by the older wire
@@ -117,56 +116,56 @@ format:
   UNKNOWN-ATTRIBUTES lists** — RFC 3489 has no attribute padding, so every
   value must keep 4-byte alignment on its own.
 
-Classic clients doing RFC 3489 NAT-type detection against the discovery
-usage get the era-correct attribute names too: SOURCE-ADDRESS and
-CHANGED-ADDRESS (what RFC 5780 renamed RESPONSE-ORIGIN and OTHER-ADDRESS),
-so CHANGE-REQUEST probing works for them. On auth-enabled servers classic
-clients draw a bare 401 — long-term credentials postdate them, so there is
-no point sending REALM/NONCE they must reject. And per
+Classic clients doing RFC 3489 NAT-type detection against the discovery usage
+get the era-correct attribute names too: SOURCE-ADDRESS and CHANGED-ADDRESS
+(what RFC 5780 renamed RESPONSE-ORIGIN and OTHER-ADDRESS), so CHANGE-REQUEST
+probing works for them. On auth-enabled servers, classic clients draw a bare
+401, because long-term credentials postdate them and there's no point sending
+REALM/NONCE they must reject. And per
 [RFC 8489 §11](https://datatracker.ietf.org/doc/html/rfc8489#section-11),
 classic STUN never rides DTLS: such requests draw a 500 (Server Error).
 
-One cost, straight from the spec: without the cookie check, the codec can
-no longer reject non-STUN input by magic value, which is why RFC 5389
-forbids combining 3489 compatibility with multiplexing STUN alongside
-another protocol on one port. A stand-alone server doesn't multiplex.
+There's one cost, straight from the spec. Without the cookie check, the codec
+can no longer reject non-STUN input by magic value, which is why RFC 5389
+forbids combining 3489 compatibility with multiplexing STUN alongside another
+protocol on one port. A stand-alone server doesn't multiplex.
 
 ## TCP differences
 
-A TCP connection can carry many requests back to back — messages are framed
-by the header's length field. But a stream can't skip bad input the way UDP
-skips a bad datagram: after a framing error there's no way to find the next
-message. So on TCP, input that isn't parseable STUN (garbage bytes,
-malformed framing, oversize frames) and rate-limit hits close the
-connection instead. Well-formed messages that simply draw no reply — a
-Binding Indication keepalive, an unsupported method, a bad FINGERPRINT —
-leave the connection open: the framing survived, and
-[§6.2.2](https://datatracker.ietf.org/doc/html/rfc8489#section-6.2.2) has
-the server let the client decide when to hang up. Idle connections are
-dropped after 40s.
+A TCP connection can carry many requests back to back, framed by the header's
+length field. But a stream can't skip bad input the way UDP skips a bad
+datagram: after a framing error there's no way to find the next message. So on
+TCP, input that isn't parseable STUN (garbage bytes, malformed framing,
+oversize frames) and rate-limit hits close the connection instead. Well-formed
+messages that simply draw no reply, such as a Binding Indication keepalive, an
+unsupported method, or a bad FINGERPRINT, leave the connection open: the
+framing survived, and
+[§6.2.2](https://datatracker.ietf.org/doc/html/rfc8489#section-6.2.2) has the
+server let the client decide when to hang up. Idle connections are dropped
+after 40s.
 
 ## Secure transports: TLS and DTLS (`stuns`)
 
 [RFC 8489 §6.2.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.2.3)
 runs the same exchanges inside an encrypted session on port 5349. TLS needs
-no code of its own: a `tls.Listen` listener handed to `ServeTCP` is the
-entire feature, with the handshake bounded by the same idle deadline as a
-first read. DTLS (TLS's datagram sibling) gets `ServeDTLS`, backed by
-[pion/dtls](https://github.com/pion/dtls) — the one dependency this package
-takes beyond the stdlib, because Go ships no DTLS. Its semantics are a
-hybrid: connection lifecycle like TCP (per-association goroutine, 40s idle
-hangup), but message handling like UDP — each DTLS record frames exactly
-one message, so malformed input is dropped and the association survives.
+no code of its own: a `tls.Listen` listener handed to `ServeTCP` is the entire
+feature, with the handshake bounded by the same idle deadline as a first read.
+DTLS (TLS's datagram sibling) gets `ServeDTLS`, backed by
+[pion/dtls](https://github.com/pion/dtls), the one dependency this package
+takes beyond the stdlib, because Go ships no DTLS. Its semantics are a hybrid.
+The connection lifecycle is like TCP (per-association goroutine, 40s idle
+hangup), but message handling is like UDP: each DTLS record frames exactly one
+message, so malformed input is dropped and the association survives.
 
-One §6.2.3 note: the RFC's mandatory-to-implement cipher list includes a
-DHE suite that Go's TLS stack deliberately omits; the equally mandated
-ECDHE suites are all there, which every real client negotiates.
+One §6.2.3 note: the RFC's mandatory-to-implement cipher list includes a DHE
+suite that Go's TLS stack omits, but the equally mandated ECDHE suites are all
+there, which is what every real client negotiates.
 
 ## Redirects: ALTERNATE-SERVER (opt-in)
 
-A server that wants clients to go elsewhere — draining for maintenance,
-splitting load — sets the `Alternate` package variable, and every Binding
-Request draws a 300 (Try Alternate) error naming the replacement
+A server that wants clients to go elsewhere, whether it's draining for
+maintenance or splitting load, sets the `Alternate` package variable, and
+every Binding Request draws a 300 (Try Alternate) error naming the replacement
 ([RFC 8489 §10](https://datatracker.ietf.org/doc/html/rfc8489#section-10)):
 
 ```go
@@ -177,19 +176,19 @@ server.Alternate = &server.AlternateServer{
 ```
 
 The RFC requires the ALTERNATE-SERVER address to match the client's address
-family, so targets are configured per family and requests from a family
-with no target are served normally. With auth enabled, the redirect happens
-only after credentials verify and the 300 is integrity-protected — an
-off-path attacker can't forge one. The NAT discovery usage never redirects:
-its whole value is this server's specific four-socket topology.
+family, so targets are configured per family, and requests from a family with
+no target are served normally. With auth enabled, the redirect happens only
+after credentials verify and the 300 is integrity-protected, so an off-path
+attacker can't forge one. The NAT discovery usage never redirects; its whole
+value is this server's specific four-socket topology.
 
 ## NAT behavior discovery (RFC 5780)
 
-Beyond "what's my address?", a client may want to know *how* its NAT
-behaves — e.g. whether the same public port is reused for every destination
+Beyond "what's my address?", a client may want to know *how* its NAT behaves.
+For example, whether the same public port is reused for every destination
 (good for peer-to-peer) or whether inbound packets from unknown hosts get
-dropped. Answering that requires the server to reply from *different*
-addresses on request, so the client can observe what gets through.
+dropped. Answering that requires the server to reply from different addresses
+on request, so the client can observe what gets through.
 
 `Discovery` implements this
 ([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)): four UDP
@@ -212,12 +211,11 @@ d, _ := server.ListenDiscovery(ip1, ip2, 3478, 3479)
 err := d.Serve()   // blocks; d.Close() ends it
 ```
 
-A request combining PADDING and RESPONSE-PORT draws a 400, per the RFC —
-a fragment test redirected to a port nobody reads couldn't be observed
-anyway. Error responses always leave from the socket that received the
-request, back to the true source: RESPONSE-PORT redirects successes only,
-so a failing request can't aim even a small reply at a port its sender
-doesn't hold.
+A request combining PADDING and RESPONSE-PORT draws a 400, per the RFC; a
+fragment test redirected to a port nobody reads couldn't be observed anyway.
+Error responses always leave from the socket that received the request, back
+to the true source. RESPONSE-PORT redirects successes only, so a failing
+request can't aim even a small reply at a port its sender doesn't hold.
 
 ## Tests
 

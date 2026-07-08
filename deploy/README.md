@@ -1,8 +1,8 @@
 # Deploying stunner
 
-Ways to run `stund` in production. All of them assume you've built the binary —
-see [CONTRIBUTING.md](../CONTRIBUTING.md) — or use the Docker image below, which
-builds it for you.
+Ways to run `stund` in production. All of them assume you've built the binary
+(see [CONTRIBUTING.md](../CONTRIBUTING.md)), or you can use the Docker image
+below, which builds it for you.
 
 ## Docker
 
@@ -36,8 +36,8 @@ _stuns._udp.example.org. IN SRV 0 0 5349 stun.example.org.  ; DTLS (RFC 7350)
 ```
 
 The port numbers in the SRV records are authoritative for clients that look
-them up; 3478 (`stun`) and 5349 (`stuns`) are just the defaults for clients that
-don't.
+them up. 3478 (`stun`) and 5349 (`stuns`) are just the defaults for clients
+that don't.
 
 ## Monitoring
 

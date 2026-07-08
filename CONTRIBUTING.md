@@ -21,17 +21,17 @@ go build ./cmd/stund       # the server
 go build ./cmd/stunc       # the client
 ```
 
-Run the server straight out of the source tree — with no flags it listens on
-`:3478`, the standard STUN port; `-addr` picks a different port and `-v` turns
-on debug logging:
+Run the server straight out of the source tree. With no flags it listens on
+`:3478`, the standard STUN port. Use `-addr` to pick a different port and `-v`
+to turn on debug logging:
 
 ```sh
 ./stund
 ./stund -addr :3479 -v
 ```
 
-`stunc` reports the address the server saw you as, a quick way to probe a
-deployment:
+`stunc` reports the address the server saw you as, which is a quick way to
+probe a deployment:
 
 ```sh
 ./stunc your-host
