@@ -79,3 +79,7 @@ the response contains nothing an on-path attacker doesn't already know).
 - **2026-07-07** — Per-package READMEs: `stunmsg/` (API + wire-format
   gotchas), `server/` (behavior table + lifecycle), `cmd/stund/` (flags).
   This file stays the cross-cutting design doc and progress log.
+- **2026-07-07** — Package READMEs rewritten for readers new to STUN: each
+  now opens with plain-language context (what a STUN message is, what the
+  Binding service does, why XOR/FINGERPRINT exist) before the reference
+  material. RFC mentions are links.

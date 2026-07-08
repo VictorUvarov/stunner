@@ -1,6 +1,9 @@
 # stund
 
-The server binary. Wires flags → socket → `server.Serve`, nothing else.
+The server binary — what you actually run. It wires command-line flags to a
+UDP socket and hands it to the [`server`](../../server/) package, which does
+the real work (answering "what's my public address?" queries; see the
+[root README](../../README.md) for why that's useful).
 
 ```sh
 go build ./cmd/stund
@@ -13,8 +16,8 @@ go build ./cmd/stund
 | `-addr` | `:3478` | UDP listen address |
 | `-v` | off | debug logging (logs each handled request) |
 
-Logs go to stderr via `log/slog`. SIGINT/SIGTERM close the socket, which
-ends the serve loop cleanly and exits 0.
+Logs go to stderr. Stop it with Ctrl-C (or SIGTERM): that closes the
+socket, which ends the serve loop cleanly and exits 0.
 
-Ports below 1024 need root (or `setcap`/launchd on the target platform);
-the standard port 3478 is above that, so no privileges required.
+Port 3478 is the standard STUN port and doesn't require root — only ports
+below 1024 do.
