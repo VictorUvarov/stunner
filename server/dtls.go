@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/pion/transport/v4/udp"
+
+	"stun/stunmsg"
 )
 
 // ServeDTLS answers Binding Requests on ln, a DTLS listener (STUN over
@@ -41,6 +43,27 @@ func acceptLoop(ln net.Listener, serve func(net.Conn, *limiter)) error {
 	}
 }
 
+// classicOverDTLS enforces RFC 8489 §11: classic STUN (no magic cookie)
+// must never ride DTLS, because without the cookie the demultiplexing that
+// secure transports rely on is gone. The boolean reports whether pkt is a
+// classic STUN message and therefore already dealt with; the response is
+// the mandated 500 (Server Error) for requests of any method, nil for
+// everything else ("indications MUST be ignored").
+func classicOverDTLS(pkt []byte) ([]byte, bool) {
+	req, err := stunmsg.Parse(pkt)
+	if err != nil || !req.Classic() {
+		return nil, false
+	}
+	if !stunmsg.IsRequest(req.Type) {
+		return nil, true
+	}
+	// Error class onto whatever method was asked: §11's 500 covers all
+	// classic requests, not just Binding.
+	resp := &stunmsg.Message{Type: req.Type | 0x0110, TransactionID: req.TransactionID, Cookie: req.Cookie}
+	resp.AddErrorCode(500, "Server Error")
+	return seal(resp, nil, false), true
+}
+
 // serveDatagramConn answers records off one DTLS association. The first
 // Read drives the handshake, so the idle deadline bounds that too. Requests
 // over the rate budget are dropped without hanging up, like plain UDP: the
@@ -58,7 +81,11 @@ func serveDatagramConn(c net.Conn, lim *limiter) {
 		if !lim.allow(src.Addr(), time.Now()) {
 			continue
 		}
-		if resp, _ := handle(buf[:n], src); resp != nil {
+		resp, classic := classicOverDTLS(buf[:n])
+		if !classic {
+			resp, _ = handle(buf[:n], src)
+		}
+		if resp != nil {
 			c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := c.Write(resp); err != nil {
 				return

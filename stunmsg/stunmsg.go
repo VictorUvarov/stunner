@@ -23,6 +23,8 @@ const (
 const (
 	AttrMappedAddress          = 0x0001
 	AttrChangeRequest          = 0x0003
+	AttrSourceAddress          = 0x0004 // RFC 3489 only; RFC 5780 renamed it RESPONSE-ORIGIN
+	AttrChangedAddress         = 0x0005 // RFC 3489 only; RFC 5780 renamed it OTHER-ADDRESS
 	AttrUsername               = 0x0006
 	AttrMessageIntegrity       = 0x0008
 	AttrErrorCode              = 0x0009
@@ -85,21 +87,49 @@ type Message struct {
 	Type          uint16
 	TransactionID [12]byte
 	Attrs         []Attr
+
+	// Cookie is the wire value of the magic-cookie field. Parse always
+	// sets it; the zero value means "RFC 8489" and marshals as the magic
+	// cookie, so hand-built messages need not touch it. Classic (RFC 3489)
+	// clients predate the cookie and treat these four bytes as the top of
+	// their 128-bit transaction ID, so responses to them must echo the
+	// request's value verbatim. (A classic client whose random ID has 32
+	// zero bits exactly here is indistinguishable from the zero value and
+	// gets a modern response; at 2^-32 per transaction we accept that.)
+	Cookie uint32
 }
 
+// Classic reports whether the message came from an RFC 3489 ("classic
+// STUN") sender, detected by the absence of the magic cookie
+// (RFC 5389 §12.2).
+func (m *Message) Classic() bool {
+	return m.Cookie != 0 && m.Cookie != magicCookie
+}
+
+// IsRequest reports whether message type t has the request class
+// (RFC 8489 §5: class bits 0b00).
+func IsRequest(t uint16) bool { return t&0x0110 == 0 }
+
 // Parse decodes a single STUN message from buf. It returns ErrNotSTUN if the
-// buffer can't be STUN at all (wrong first bits or magic cookie), and
+// buffer can't be STUN at all (too short or wrong first bits), and
 // ErrMalformed if the header or attribute framing is inconsistent.
+// A message without the magic cookie parses as classic STUN (see Cookie),
+// which is what RFC 8489 §11 compatibility needs — but it means the cookie
+// no longer helps reject non-STUN input, so Parse MUST NOT be used to
+// demultiplex STUN from other protocols sharing a port (RFC 5389 §12.2
+// forbids that combination outright).
 func Parse(buf []byte) (*Message, error) {
-	if len(buf) < HeaderSize || buf[0]&0xC0 != 0 ||
-		binary.BigEndian.Uint32(buf[4:8]) != magicCookie {
+	if len(buf) < HeaderSize || buf[0]&0xC0 != 0 {
 		return nil, ErrNotSTUN
 	}
 	length := int(binary.BigEndian.Uint16(buf[2:4]))
 	if length%4 != 0 || HeaderSize+length != len(buf) {
 		return nil, ErrMalformed
 	}
-	m := &Message{Type: binary.BigEndian.Uint16(buf[0:2])}
+	m := &Message{
+		Type:   binary.BigEndian.Uint16(buf[0:2]),
+		Cookie: binary.BigEndian.Uint32(buf[4:8]),
+	}
 	copy(m.TransactionID[:], buf[8:HeaderSize])
 
 	for rest := buf[HeaderSize:]; len(rest) > 0; {
@@ -129,10 +159,14 @@ func (m *Message) marshal(extraLen int) []byte {
 	for _, a := range m.Attrs {
 		length += 4 + (len(a.Value)+3)/4*4
 	}
+	cookie := m.Cookie
+	if cookie == 0 {
+		cookie = magicCookie
+	}
 	buf := make([]byte, HeaderSize, HeaderSize+length)
 	binary.BigEndian.PutUint16(buf[0:2], m.Type)
 	binary.BigEndian.PutUint16(buf[2:4], uint16(length))
-	binary.BigEndian.PutUint32(buf[4:8], magicCookie)
+	binary.BigEndian.PutUint32(buf[4:8], cookie)
 	copy(buf[8:], m.TransactionID[:])
 	var pad [3]byte
 	for _, a := range m.Attrs {
@@ -270,7 +304,13 @@ func (m *Message) xorKey() [16]byte {
 }
 
 // AddErrorCode appends an ERROR-CODE attribute (e.g. 420, "Unknown Attribute").
+// On classic messages the reason is space-padded to a 4-byte multiple:
+// RFC 3489 has no attribute padding, so the value itself must keep the
+// alignment (§11.2.9), and set Cookie before calling this.
 func (m *Message) AddErrorCode(code int, reason string) {
+	if m.Classic() {
+		reason += "    "[:(4-len(reason)%4)%4]
+	}
 	v := make([]byte, 4+len(reason))
 	v[2] = byte(code / 100)
 	v[3] = byte(code % 100)
@@ -284,8 +324,13 @@ func (m *Message) AddSoftware(name string) {
 }
 
 // AddUnknownAttributes appends an UNKNOWN-ATTRIBUTES attribute listing the
-// given types; it accompanies a 420 error response.
+// given types; it accompanies a 420 error response. On classic messages an
+// odd list gets one type repeated: RFC 3489 §11.2.10 demands an even count
+// to keep its padding-free framing aligned, so set Cookie before calling.
 func (m *Message) AddUnknownAttributes(types []uint16) {
+	if m.Classic() && len(types)%2 == 1 {
+		types = append(types[:len(types):len(types)], types[0])
+	}
 	v := make([]byte, 2*len(types))
 	for i, t := range types {
 		binary.BigEndian.PutUint16(v[2*i:], t)

@@ -145,7 +145,7 @@ func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *n
 		if padding {
 			// §6.1: PADDING plus RESPONSE-PORT is a 400 — a fragment
 			// test redirected elsewhere could never be observed anyway.
-			resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID}
+			resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID, Cookie: req.Cookie}
 			resp.AddErrorCode(400, "Bad Request")
 			return seal(resp, key, sha2), d.conns[i][j], src
 		}
@@ -174,10 +174,19 @@ func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *n
 	}
 	// RFC 5780 §6.1: success responses carry MAPPED-ADDRESS too,
 	// where the response actually originates, and the full alternate.
+	// Classic clients already got MAPPED-ADDRESS from respond, and their
+	// NAT-type detection (RFC 3489 §10.1) reads the same two values under
+	// the pre-5780 names SOURCE-ADDRESS and CHANGED-ADDRESS — which they
+	// understand, so CHANGE-REQUEST probing keeps working for them.
 	out := d.conns[oi][oj]
-	resp.AddAddress(stunmsg.AttrMappedAddress, src)
-	resp.AddAddress(stunmsg.AttrResponseOrigin, localAddrPort(out))
-	resp.AddAddress(stunmsg.AttrOtherAddress, localAddrPort(d.conns[i^1][j^1]))
+	if req.Classic() {
+		resp.AddAddress(stunmsg.AttrSourceAddress, localAddrPort(out))
+		resp.AddAddress(stunmsg.AttrChangedAddress, localAddrPort(d.conns[i^1][j^1]))
+	} else {
+		resp.AddAddress(stunmsg.AttrMappedAddress, src)
+		resp.AddAddress(stunmsg.AttrResponseOrigin, localAddrPort(out))
+		resp.AddAddress(stunmsg.AttrOtherAddress, localAddrPort(d.conns[i^1][j^1]))
+	}
 	if padding {
 		resp.Add(stunmsg.AttrPadding, make([]byte, paddingLen(out)))
 	}

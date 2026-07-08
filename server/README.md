@@ -34,6 +34,7 @@ serve loop returns. That's the whole lifecycle.
 | Input | Response |
 |---|---|
 | Valid Binding Request | Success response carrying the sender's address (XOR-MAPPED-ADDRESS) |
+| … without the magic cookie (a classic RFC 3489 client) | Success response carrying plain MAPPED-ADDRESS, see below |
 | … containing an attribute we're required to understand but don't | Error 420 listing the offending attributes, so the client knows why |
 | … containing auth attributes (USERNAME, MESSAGE-INTEGRITY) | Ignored and answered normally — unless auth is enabled, see below |
 | A Binding Indication | Silence — indications get no response by design; their receipt alone refreshes NAT bindings |
@@ -96,6 +97,39 @@ nonce table can't be flooded; a server restart just costs clients one extra
 438 round trip. Realm, usernames, and passwords are run through the
 OpaqueString profile ([RFC 8265](https://datatracker.ietf.org/doc/html/rfc8265))
 at setup, and only derived keys are kept in memory — raw passwords are not.
+
+## Classic clients: RFC 3489 backwards compatibility
+
+The original 2003 STUN spec had no magic cookie — those four bytes were
+part of a 128-bit transaction ID — so a cookie-less Binding Request marks
+a classic client ([RFC 5389 §12.2](https://datatracker.ietf.org/doc/html/rfc5389#section-12.2)),
+and stand-alone servers SHOULD keep serving them
+([RFC 8489 §12](https://datatracker.ietf.org/doc/html/rfc8489#section-12)).
+Classic responses differ on three points, all forced by the older wire
+format:
+
+- **Plain MAPPED-ADDRESS**, never XOR-MAPPED-ADDRESS — the XOR form
+  postdates RFC 3489, and a classic parser rejects any message carrying a
+  mandatory attribute it doesn't know.
+- **All 128 transaction ID bits echoed**, including the four bytes where
+  the cookie would be.
+- **No SOFTWARE or FINGERPRINT, space-padded error reasons, even-count
+  UNKNOWN-ATTRIBUTES lists** — RFC 3489 has no attribute padding, so every
+  value must keep 4-byte alignment on its own.
+
+Classic clients doing RFC 3489 NAT-type detection against the discovery
+usage get the era-correct attribute names too: SOURCE-ADDRESS and
+CHANGED-ADDRESS (what RFC 5780 renamed RESPONSE-ORIGIN and OTHER-ADDRESS),
+so CHANGE-REQUEST probing works for them. On auth-enabled servers classic
+clients draw a bare 401 — long-term credentials postdate them, so there is
+no point sending REALM/NONCE they must reject. And per
+[RFC 8489 §11](https://datatracker.ietf.org/doc/html/rfc8489#section-11),
+classic STUN never rides DTLS: such requests draw a 500 (Server Error).
+
+One cost, straight from the spec: without the cookie check, the codec can
+no longer reject non-STUN input by magic value, which is why RFC 5389
+forbids combining 3489 compatibility with multiplexing STUN alongside
+another protocol on one port. A stand-alone server doesn't multiplex.
 
 ## TCP differences
 

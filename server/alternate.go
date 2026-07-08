@@ -34,22 +34,30 @@ var Alternate *AlternateServer
 // to src's address family. It runs after authentication, so when auth is
 // enabled the 300 carries MESSAGE-INTEGRITY like any other response and an
 // off-path attacker can't forge a redirect to a server they control.
+// §10 wants the mandatory same-family ALTERNATE-SERVER followed by the
+// other family's target when one is configured. Classic clients never get
+// ALTERNATE-DOMAIN: its free-form length would desync an RFC 3489 parser
+// (they can't follow the redirect either way — ALTERNATE-SERVER is an
+// optional attribute they ignore, and the 300 correctly reads as failure).
 func redirect(req *stunmsg.Message, src netip.AddrPort) *stunmsg.Message {
 	alt := Alternate
 	if alt == nil {
 		return nil
 	}
-	target := alt.V4
+	target, other := alt.V4, alt.V6
 	if src.Addr().Unmap().Is6() {
-		target = alt.V6
+		target, other = alt.V6, alt.V4
 	}
 	if !target.IsValid() {
 		return nil
 	}
-	resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID}
+	resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID, Cookie: req.Cookie}
 	resp.AddErrorCode(300, "Try Alternate")
 	resp.AddAddress(stunmsg.AttrAlternateServer, target)
-	if alt.Domain != "" {
+	if other.IsValid() {
+		resp.AddAddress(stunmsg.AttrAlternateServer, other)
+	}
+	if alt.Domain != "" && !req.Classic() {
 		resp.Add(stunmsg.AttrAlternateDomain, []byte(alt.Domain))
 	}
 	return resp

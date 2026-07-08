@@ -69,3 +69,28 @@ func TestRedirectAuthenticatedIsSigned(t *testing.T) {
 		t.Fatal("300 must carry valid MESSAGE-INTEGRITY for authenticated clients")
 	}
 }
+
+// §10: after the mandatory same-family ALTERNATE-SERVER, the other
+// family's target SHOULD follow when configured.
+func TestRedirectListsOtherFamily(t *testing.T) {
+	v4 := netip.MustParseAddrPort("192.0.2.1:3478")
+	v6 := netip.MustParseAddrPort("[2001:db8::1]:3478")
+	setAlternate(t, &AlternateServer{V4: v4, V6: v6})
+	client := startServer(t) // IPv4 client: v4 is mandatory, v6 trails
+
+	resp := roundTrip(t, client, newRequest(t).Marshal())
+	var got []netip.AddrPort
+	for _, a := range resp.Attrs {
+		if a.Type == stunmsg.AttrAlternateServer {
+			m := &stunmsg.Message{Attrs: []stunmsg.Attr{a}}
+			ap, err := m.Address(stunmsg.AttrAlternateServer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, ap)
+		}
+	}
+	if len(got) != 2 || got[0] != v4 || got[1] != v6 {
+		t.Fatalf("ALTERNATE-SERVER list = %v, want [%v %v]", got, v4, v6)
+	}
+}

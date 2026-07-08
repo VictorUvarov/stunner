@@ -121,10 +121,11 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestRejectsGarbage(t *testing.T) {
+	// Note no wrong-cookie case: a message without the magic cookie is
+	// valid classic STUN (RFC 5389 §12.2), not garbage.
 	cases := [][]byte{
 		nil,
 		[]byte("hello"),
-		bytes.Repeat([]byte{0}, 20),             // zero magic cookie
 		append([]byte{0xC0, 1}, vecIPv4[2:]...), // wrong leading bits
 		vecIPv4[:len(vecIPv4)-1],                // truncated
 		append(append([]byte{}, vecIPv4...), 0, 0, 0), // trailing junk
@@ -171,6 +172,75 @@ func TestTrimAfterIntegrity(t *testing.T) {
 		}
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: attrs = %04x, want %04x", c.name, got, c.want)
+		}
+	}
+}
+
+func TestClassic(t *testing.T) {
+	// A classic request is a modern one with arbitrary bytes where the
+	// magic cookie would be: build modern, stamp the cookie field.
+	m := &Message{Type: BindingRequest}
+	raw := m.Marshal()
+	copy(raw[4:8], []byte{0xDE, 0xAD, 0xBE, 0xEF})
+
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Classic() || got.Cookie != 0xDEADBEEF {
+		t.Fatalf("Classic() = %v, Cookie = %08x", got.Classic(), got.Cookie)
+	}
+	if !bytes.Equal(got.Marshal(), raw) {
+		t.Fatal("classic re-marshal lost the cookie bytes")
+	}
+
+	modern, err := Parse(m.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modern.Classic() {
+		t.Fatal("magic cookie parsed as classic")
+	}
+	if (&Message{Type: BindingRequest}).Classic() {
+		t.Fatal("zero-value message reports classic")
+	}
+}
+
+func TestClassicWireAlignment(t *testing.T) {
+	classic := &Message{Type: BindingError, Cookie: 0xDEADBEEF}
+	classic.AddErrorCode(420, "Unknown Attribute") // 17 bytes: needs padding
+	classic.AddUnknownAttributes([]uint16{0x7FFF}) // odd count: needs doubling
+
+	ec, _ := classic.Get(AttrErrorCode)
+	if len(ec)%4 != 0 || string(ec[4:]) != "Unknown Attribute   " {
+		t.Fatalf("classic reason not space-padded to 4: %q", ec[4:])
+	}
+	ua, _ := classic.Get(AttrUnknownAttributes)
+	if len(ua) != 4 || ua[0] != 0x7F || ua[1] != 0xFF || ua[2] != 0x7F || ua[3] != 0xFF {
+		t.Fatalf("classic odd unknown-attr list not doubled: %x", ua)
+	}
+
+	modern := &Message{Type: BindingError}
+	modern.AddErrorCode(420, "Unknown Attribute")
+	modern.AddUnknownAttributes([]uint16{0x7FFF})
+	if ec, _ := modern.Get(AttrErrorCode); string(ec[4:]) != "Unknown Attribute" {
+		t.Fatalf("modern reason altered: %q", ec[4:])
+	}
+	if ua, _ := modern.Get(AttrUnknownAttributes); len(ua) != 2 {
+		t.Fatalf("modern unknown-attr list altered: %x", ua)
+	}
+}
+
+func TestIsRequest(t *testing.T) {
+	for typ, want := range map[uint16]bool{
+		BindingRequest:    true,
+		BindingIndication: false,
+		BindingSuccess:    false,
+		BindingError:      false,
+		0x0003:            true, // another method, request class
+	} {
+		if IsRequest(typ) != want {
+			t.Errorf("IsRequest(%04x) = %v, want %v", typ, !want, want)
 		}
 	}
 }

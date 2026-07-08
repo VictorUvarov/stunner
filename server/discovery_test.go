@@ -233,3 +233,38 @@ func TestDiscoveryStillRejectsUnknownAttrs(t *testing.T) {
 		t.Fatalf("error from = %v, want receiving socket %v", from, want)
 	}
 }
+
+// Classic NAT-type detection (RFC 3489 §10.1) reads SOURCE-ADDRESS and
+// CHANGED-ADDRESS; the modern RFC 5780 names would be unknown mandatory
+// attributes to a classic parser, which must reject messages carrying them.
+func TestDiscoveryClassic(t *testing.T) {
+	d := startDiscovery(t)
+	c := discoveryClient(t)
+	req := newRequest(t)
+	req.Cookie = 0xDEADBEEF
+	req.Add(stunmsg.AttrChangeRequest, []byte{0, 0, 0, stunmsg.ChangePort})
+	resp, from := sendTo(t, c, d, req, 0, 0)
+
+	if resp.Type != stunmsg.BindingSuccess || resp.Cookie != req.Cookie {
+		t.Fatalf("type = %v, cookie = %08x", resp, resp.Cookie)
+	}
+	if want := localAddrPort(d.conns[0][1]); from != want {
+		t.Fatalf("from = %v, want changed-port socket %v", from, want)
+	}
+	if ap, err := resp.Address(stunmsg.AttrMappedAddress); err != nil || ap != localAddrPort(c) {
+		t.Fatalf("MAPPED-ADDRESS = %v (%v)", ap, err)
+	}
+	if src, err := resp.Address(stunmsg.AttrSourceAddress); err != nil || src != from {
+		t.Fatalf("SOURCE-ADDRESS = %v (%v), sent from %v", src, err, from)
+	}
+	if ch, err := resp.Address(stunmsg.AttrChangedAddress); err != nil || ch != localAddrPort(d.conns[1][1]) {
+		t.Fatalf("CHANGED-ADDRESS = %v (%v)", ch, err)
+	}
+	for _, a := range resp.Attrs {
+		switch a.Type {
+		case stunmsg.AttrXORMappedAddress, stunmsg.AttrResponseOrigin,
+			stunmsg.AttrOtherAddress, stunmsg.AttrSoftware, stunmsg.AttrFingerprint:
+			t.Fatalf("classic response carries post-3489 attribute %04x", a.Type)
+		}
+	}
+}

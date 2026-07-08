@@ -43,7 +43,7 @@ just cover       # per-package coverage
 
 ```sh
 just test-py           # all three below
-just test-py-binding   # Binding over UDP + TCP (RFC 8489)
+just test-py-binding   # Binding over UDP + TCP (RFC 8489) + a classic RFC 3489 exchange
 just test-py-auth      # long-term credential handshake (RFC 5389 legacy + RFC 8489)
 just test-py-tls       # Binding inside a TLS stream (RFC 8489 §6.2.3)
 ```

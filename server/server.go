@@ -102,18 +102,26 @@ func validate(pkt []byte) (*stunmsg.Message, bool) {
 // respond builds the response skeleton for a validated request: a success
 // carrying XOR-MAPPED-ADDRESS, or a 420 error if req has comprehension-
 // required attributes outside ignore. Callers may append usage-specific
-// attributes to a success before sealing it.
+// attributes to a success before sealing it. Classic requests get
+// MAPPED-ADDRESS instead — XOR-MAPPED-ADDRESS postdates RFC 3489, and a
+// classic client discards responses with mandatory attributes it doesn't
+// know — and echo the request's cookie bits, which the classic client
+// matches as part of its 128-bit transaction ID (RFC 5389 §12.2).
 func respond(req *stunmsg.Message, src netip.AddrPort, ignore map[uint16]bool) *stunmsg.Message {
-	resp := &stunmsg.Message{TransactionID: req.TransactionID}
+	resp := &stunmsg.Message{TransactionID: req.TransactionID, Cookie: req.Cookie}
 	if unknown := unknownRequired(req, ignore); len(unknown) > 0 {
 		slog.Debug("unknown attributes", "src", src, "attrs", unknown)
 		resp.Type = stunmsg.BindingError
 		resp.AddErrorCode(420, "Unknown Attribute")
 		resp.AddUnknownAttributes(unknown)
 	} else {
-		slog.Debug("binding", "src", src)
+		slog.Debug("binding", "src", src, "classic", req.Classic())
 		resp.Type = stunmsg.BindingSuccess
-		resp.AddXORMappedAddress(src)
+		if req.Classic() {
+			resp.AddAddress(stunmsg.AttrMappedAddress, src)
+		} else {
+			resp.AddXORMappedAddress(src)
+		}
 	}
 	return resp
 }
@@ -122,8 +130,14 @@ func respond(req *stunmsg.Message, src netip.AddrPort, ignore map[uint16]bool) *
 // SOFTWARE, then — for authenticated exchanges — the integrity HMAC keyed
 // with key (MESSAGE-INTEGRITY-SHA256 when the client negotiated a password
 // algorithm, legacy MESSAGE-INTEGRITY otherwise, per RFC 8489 §9.2.4),
-// then FINGERPRINT, which must be last.
+// then FINGERPRINT, which must be last. Classic responses stay bare:
+// RFC 3489 parsers know no attribute padding, so SOFTWARE's odd length
+// would desync them, and the FINGERPRINT mechanism explicitly isn't
+// backwards compatible (RFC 8489 §7).
 func seal(resp *stunmsg.Message, key []byte, sha2 bool) []byte {
+	if resp.Classic() {
+		return resp.Marshal()
+	}
 	resp.AddSoftware(Software)
 	if key != nil {
 		if sha2 {

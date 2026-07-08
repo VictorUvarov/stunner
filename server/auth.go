@@ -213,10 +213,18 @@ func bare400(req *stunmsg.Message) *stunmsg.Message {
 }
 
 // authenticate applies Credentials to a request when set; anonymous
-// servers pass everything through with no signing key.
+// servers pass everything through with no signing key. Classic (RFC 3489)
+// clients predate long-term credentials entirely, so on an auth-enabled
+// server they draw a bare 401 — sending them REALM/NONCE would only feed
+// mandatory attributes to a parser that must reject them.
 func authenticate(pkt []byte, req *stunmsg.Message) (key []byte, sha2 bool, errResp *stunmsg.Message) {
 	if Credentials == nil {
 		return nil, false, nil
+	}
+	if req.Classic() {
+		resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID, Cookie: req.Cookie}
+		resp.AddErrorCode(401, "Unauthenticated")
+		return nil, false, resp
 	}
 	return Credentials.check(pkt, req)
 }

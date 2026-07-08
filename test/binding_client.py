@@ -2,8 +2,9 @@
 """Independent STUN Binding checks against a running stund (no auth).
 
 Exercises UDP and TCP from outside the Go toolchain: success response with
-a correct XOR-MAPPED-ADDRESS, and the 420 path for an unknown
-comprehension-required attribute.
+a correct XOR-MAPPED-ADDRESS, the 420 path for an unknown
+comprehension-required attribute, and a classic (RFC 3489, no magic
+cookie) exchange answered with a bare MAPPED-ADDRESS.
 
 Usage:  ./stund -addr 127.0.0.1:3478 &
         python3 test/binding_client.py [host] [port]
@@ -65,6 +66,22 @@ ec = a[0x0009]
 assert mtype == 0x0111 and ec[2] * 100 + ec[3] == 420, "expected 420 error"
 assert a[0x000A] == b"\x7f\xff", "UNKNOWN-ATTRIBUTES should list 0x7FFF"
 
+# Classic STUN (RFC 3489): 128-bit transaction ID, no magic cookie. The
+# response must echo all 16 ID bytes and answer with plain MAPPED-ADDRESS
+# only — a classic parser rejects unknown mandatory attributes and has no
+# concept of attribute padding.
+tid16 = os.urandom(16)
+sock.send(struct.pack(">HH", 0x0001, 0) + tid16)
+data = sock.recv(1500)
+mtype, length = struct.unpack_from(">HH", data)
+assert mtype == 0x0101, f"classic: type {mtype:#06x}, want success"
+assert data[4:20] == tid16, "classic: 128-bit transaction ID not echoed"
+a = attrs(data[20:20 + length])
+assert set(a) == {0x0001}, f"classic: attrs {sorted(map(hex, a))}, want MAPPED-ADDRESS alone"
+port = struct.unpack_from(">H", a[0x0001], 2)[0]
+got = (socket.inet_ntoa(a[0x0001][4:8]), port)
+assert got == sock.getsockname(), f"classic: mapped {got}, sent from {sock.getsockname()}"
+
 # TCP success (multiple requests on one connection)
 tcp = socket.create_connection((HOST, PORT), timeout=2)
 for _ in range(2):
@@ -76,4 +93,4 @@ for _ in range(2):
     check_response(hdr + body, tid, tcp.getsockname())
 tcp.close()
 
-print("binding OK: UDP success, UDP 420, TCP x2")
+print("binding OK: UDP success, UDP 420, classic 3489, TCP x2")

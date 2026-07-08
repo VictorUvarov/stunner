@@ -143,3 +143,72 @@ func TestDropsSilently(t *testing.T) {
 		}
 	}
 }
+
+func TestClassicBinding(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	req.Cookie = 0xDEADBEEF // no magic cookie: an RFC 3489 client
+	resp := roundTrip(t, client, req.Marshal())
+
+	if resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+	if resp.Cookie != req.Cookie || resp.TransactionID != req.TransactionID {
+		t.Fatal("classic 128-bit transaction ID not echoed")
+	}
+	ap, err := resp.Address(stunmsg.AttrMappedAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := client.LocalAddr().(*net.UDPAddr).AddrPort()
+	if ap != netip.AddrPortFrom(want.Addr().Unmap(), want.Port()) {
+		t.Fatalf("mapped = %v, want %v", ap, want)
+	}
+	// A classic parser knows no attribute padding and rejects unknown
+	// mandatory attributes, so the response must carry MAPPED-ADDRESS
+	// alone: no XOR form, no SOFTWARE, no FINGERPRINT.
+	if len(resp.Attrs) != 1 {
+		t.Fatalf("attrs = %v, want MAPPED-ADDRESS alone", resp)
+	}
+}
+
+func TestClassic420StaysAligned(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	req.Cookie = 0xDEADBEEF
+	req.Add(0x7FFF, []byte{1, 2, 3, 4})
+	resp := roundTrip(t, client, req.Marshal())
+
+	if code := errorCode(t, resp); code != 420 {
+		t.Fatalf("error code = %d, want 420", code)
+	}
+	if resp.Cookie != req.Cookie {
+		t.Fatal("cookie not echoed")
+	}
+	ec, _ := resp.Get(stunmsg.AttrErrorCode)
+	if len(ec)%4 != 0 {
+		t.Fatalf("classic ERROR-CODE length %d not 4-aligned", len(ec))
+	}
+	if ua, _ := resp.Get(stunmsg.AttrUnknownAttributes); len(ua) != 4 {
+		t.Fatalf("UNKNOWN-ATTRIBUTES = %x, want the odd list doubled", ua)
+	}
+}
+
+func TestClassicAuthDrawsBare401(t *testing.T) {
+	client := startAuthServer(t)
+	req := newRequest(t)
+	req.Cookie = 0xDEADBEEF
+	resp := roundTrip(t, client, req.Marshal())
+
+	if code := errorCode(t, resp); code != 401 {
+		t.Fatalf("error code = %d, want 401", code)
+	}
+	// REALM and NONCE are mandatory attributes a classic parser must
+	// reject, and classic clients can't run long-term auth anyway.
+	if len(resp.Attrs) != 1 {
+		t.Fatalf("attrs = %v, want ERROR-CODE alone", resp)
+	}
+	if ec, _ := resp.Get(stunmsg.AttrErrorCode); len(ec)%4 != 0 {
+		t.Fatalf("classic ERROR-CODE length %d not 4-aligned", len(ec))
+	}
+}

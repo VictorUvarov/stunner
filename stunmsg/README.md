@@ -70,3 +70,14 @@ which covers USERHASH, the nonce cookie, and MESSAGE-INTEGRITY-SHA256.
   length field counts the unpadded value. Padding bytes may be non-zero
   (the RFC 5769 vectors deliberately pad with spaces) and must be ignored,
   not validated.
+- A message *without* the magic cookie isn't garbage — it's classic STUN
+  (RFC 3489), which used those four bytes as part of a 128-bit transaction
+  ID. `Parse` accepts it and exposes the wire value via `Cookie` /
+  `Classic()`; `Marshal` echoes a non-zero `Cookie` verbatim (zero means
+  "modern" and writes the magic). The flip side: the cookie no longer
+  screens out non-STUN input, so `Parse` must not be used to demultiplex
+  STUN from other protocols on a shared port.
+- Classic messages carry their alignment themselves — RFC 3489 has no
+  attribute padding — so on classic messages `AddErrorCode` space-pads the
+  reason and `AddUnknownAttributes` doubles an odd list. Set `Cookie`
+  before calling either.

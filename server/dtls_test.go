@@ -86,3 +86,41 @@ func TestDTLSSurvivesGarbage(t *testing.T) {
 		t.Fatalf("bad response: %v", resp)
 	}
 }
+
+// RFC 8489 §11: classic STUN must never ride DTLS — requests draw a 500
+// and the association survives to serve modern messages.
+func TestDTLSRejectsClassic(t *testing.T) {
+	c := startDTLSServer(t)
+	classic := newRequest(t)
+	classic.Cookie = 0xDEADBEEF
+	if _, err := c.Write(classic.Marshal()); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, maxConnMessage)
+	n, err := c.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := stunmsg.Parse(buf[:n])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := errorCode(t, resp); code != 500 {
+		t.Fatalf("error code = %d, want 500", code)
+	}
+	if resp.Cookie != classic.Cookie || resp.TransactionID != classic.TransactionID {
+		t.Fatal("classic 128-bit transaction ID not echoed")
+	}
+
+	modern := newRequest(t)
+	if _, err := c.Write(modern.Marshal()); err != nil {
+		t.Fatal(err)
+	}
+	n, err = c.Read(buf)
+	if err != nil {
+		t.Fatal("association should have survived the classic request:", err)
+	}
+	if resp, err = stunmsg.Parse(buf[:n]); err != nil || resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("modern follow-up failed: %v (%v)", resp, err)
+	}
+}

@@ -68,8 +68,12 @@ deferred items live at the bottom of this list until they're done.
    FINGERPRINT/demux corner cases), documenting each verdict here.~~ Done
    (two fixes — attributes after MESSAGE-INTEGRITY now ignored, streams
    stay open through valid no-reply messages — full verdict list in the
-   progress log; one SHOULD deliberately declined: RFC 3489 backwards
-   compatibility, §11/§12).
+   progress log; the one deliberately declined SHOULD, RFC 3489 backwards
+   compatibility, became phase 10).
+10. ~~**RFC 3489 backwards compat** — serve "classic STUN" clients:
+    cookie-less detection, 128-bit transaction ID echo, plain
+    MAPPED-ADDRESS, classic wire alignment, 500 for classic-over-DTLS
+    (§11), SOURCE-ADDRESS/CHANGED-ADDRESS in discovery.~~ Done.
 
 Out of scope: TURN relaying (RFC 8656 is a different protocol and a
 different threat model, not part of STUN itself).
@@ -259,3 +263,28 @@ different threat model, not part of STUN itself).
   ever surfaces. New tests: trim table test in `stunmsg`, appended-attr
   420-suppression over loopback UDP, and a TCP test proving indications
   and unknown methods don't cost the connection.
+- **2026-07-08** — RFC 3489 "classic STUN" backwards compat (phase 10),
+  reversing phase 9's declined verdict at the operator's call — §12's last
+  unmet SHOULD. Detection is the absence of the magic cookie (RFC 5389
+  §12.2): `Message` grew a `Cookie` field (zero marshals as the magic, so
+  every existing construction site kept working) and `Parse` now accepts
+  cookie-less messages — with the documented demux cost: the codec can't
+  be used to split STUN from other protocols on one port, which 5389
+  forbids for compat servers anyway. Classic responses follow the 2003
+  wire format: plain MAPPED-ADDRESS (a classic parser rejects unknown
+  mandatory attributes, so no XOR form), the full 128-bit transaction ID
+  echoed, and nothing that would break a parser with no concept of
+  attribute padding — no SOFTWARE (odd length), no FINGERPRINT (§7: not
+  backwards compatible), space-padded ERROR-CODE reasons and even-count
+  UNKNOWN-ATTRIBUTES lists (both alignment rules live in the codec, keyed
+  off Cookie). Auth-enabled servers give classic clients a bare 401 —
+  REALM/NONCE are meaningless to a parser that must reject them. Discovery
+  answers classic NAT-type detection (RFC 3489 §10.1) with the era-correct
+  SOURCE-ADDRESS/CHANGED-ADDRESS names, so CHANGE-REQUEST probing works
+  for classic clients too. RFC 8489 §11's one addition is honored: classic
+  never rides DTLS — requests of any method draw a 500, the rest is
+  ignored, and the association survives. Also picked up en route: §10's
+  until-now-missed SHOULD that a redirect list the *other* family's
+  ALTERNATE-SERVER after the mandatory same-family one. Verified by codec
+  and loopback tests plus a classic exchange in the Python binding client;
+  `just check` green.
