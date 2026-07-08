@@ -1,8 +1,9 @@
 # stunc
 
-The client binary: asks a STUN server what address it sees and prints it,
+The client binary. It asks a STUN server what address it sees and prints it,
 one line, suitable for scripts. The protocol work lives in
-[`stunclient`](../../internal/stunclient/); this wires flags to a transport.
+[`stunclient`](../../internal/stunclient/); this binary just wires flags to a
+transport.
 
 ```sh
 go build ./cmd/stunc
@@ -28,5 +29,5 @@ error response, bad credentials); 3 when the server answered
 300 Try Alternate, with the alternate printed to stderr.
 
 Because it speaks every transport `stund` serves, it doubles as the repo's
-end-to-end self-test — `just test-e2e` runs it against a freshly built
-server over UDP, TCP, TLS, DTLS, and the auth handshake.
+end-to-end self-test. `just test-e2e` runs it against a freshly built server
+over UDP, TCP, TLS, DTLS, and the auth handshake.

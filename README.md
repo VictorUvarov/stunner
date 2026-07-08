@@ -4,18 +4,19 @@
 
 A small, fast STUN server written in Go. One binary.
 
-> **Status: feature-complete.** Every MUST and SHOULD in RFC 8489 — Binding
-> over UDP, TCP, TLS, and DTLS, long-term credential auth, NAT behavior
-> discovery (RFC 5780), even RFC 3489 "classic STUN" backwards compatibility.
-> See the [progress log](OVERVIEW.md#progress-log) for the full story.
+> **Status: feature-complete.** It covers every MUST and SHOULD in RFC 8489:
+> Binding over UDP, TCP, TLS, and DTLS, long-term credential auth, NAT
+> behavior discovery (RFC 5780), and RFC 3489 "classic STUN" backwards
+> compatibility. See the [progress log](OVERVIEW.md#progress-log) for the
+> full history.
 
 ## What is this for?
 
-If your app does video calls, voice chat, multiplayer games, or any other
-peer-to-peer networking, devices behind home routers don't know their own
-public address. A STUN server tells them: a device asks *"what's my IP and
-port from the outside?"* and the server answers. That one answer is usually
-all it takes for two devices to connect directly to each other.
+If your app does video calls, voice chat, multiplayer games, or anything else
+peer-to-peer, the catch is that devices behind home routers don't know their
+own public address. A STUN server tells them. The device asks what its IP and
+port look like from the outside, and the server answers. That one answer is
+usually enough for two devices to connect directly.
 
 ```mermaid
 sequenceDiagram
@@ -32,21 +33,22 @@ sequenceDiagram
 
 Reasons to run your own instead of using a public one:
 
-- **Privacy** — public STUN servers see the IP of every user of your app.
-- **Reliability** — no dependence on someone else's free service staying up.
-- **It's cheap** — STUN is stateless and tiny; the smallest VPS you can rent
-  will handle enormous traffic.
+- **Privacy.** Public STUN servers see the IP of every user of your app.
+- **Reliability.** You don't depend on someone else's free service staying up.
+- **Cost.** STUN is stateless and tiny. The smallest VPS you can rent will
+  handle enormous traffic.
 
 ## Quick start
 
-Build it from source and run it — [CONTRIBUTING.md](CONTRIBUTING.md) has the
-one-liner. With no flags it listens on `:3478`, the standard STUN port; `-addr`
-picks a different port and `-v` turns on debug logging. Stop it with Ctrl-C.
+Build it from source and run it. [CONTRIBUTING.md](CONTRIBUTING.md) has the
+one-liner. With no flags it listens on `:3478`, the standard STUN port. Use
+`-addr` to pick a different port and `-v` to turn on debug logging. Stop it
+with Ctrl-C.
 
 Then point your WebRTC config (or any STUN client) at `stun:your-host:3478`.
 
-A companion client, `stunc`, ships in the same repo — handy for checking a
-deployment, it prints back the address the server saw you as. The
+A companion client, `stunc`, ships in the same repo. It prints back the
+address the server saw you as, which is handy for checking a deployment. The
 [flag reference](cmd/stund/README.md) covers everything `stund` accepts.
 
 ## Features
@@ -63,13 +65,13 @@ deployment, it prints back the address the server saw you as. The
 
 ### How it compares
 
-[coturn](https://github.com/coturn/coturn) is the usual open-source choice, and
-the right one if you need TURN media relaying — a mature C server that speaks
-STUN and TURN both, with the configuration surface to match. stunner
-deliberately does less: STUN only, in Go, shipping as one static binary with
-sensible defaults, so there's next to nothing to configure and nothing to link
-against. Against a public server (Google's `stun.l.google.com`, say), running
-your own is the privacy and reliability trade described above.
+[coturn](https://github.com/coturn/coturn) is the usual open-source choice,
+and the right one if you need TURN media relaying. It's a mature C server that
+speaks both STUN and TURN, with the configuration surface to match. stunner
+does less on purpose: STUN only, in Go, as one static binary with sensible
+defaults. There's almost nothing to configure and nothing to link against.
+Compared to a public server like Google's `stun.l.google.com`, running your
+own buys you the privacy and reliability described above.
 
 ## Deployment
 
