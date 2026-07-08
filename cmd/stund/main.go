@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"stun/server"
@@ -21,9 +23,27 @@ func main() {
 	rps := flag.Float64("rps", 10, "per-IP request rate limit (0 disables)")
 	altIP := flag.String("alt-ip", "", "second IP; enables RFC 5780 NAT discovery (requires explicit IP in -addr)")
 	altPort := flag.Uint("alt-port", 0, "alternate port for NAT discovery (default: primary port + 1)")
+	realm := flag.String("realm", "", "authentication realm (long-term credentials; needs -user)")
+	users := map[string]string{}
+	flag.Func("user", "username:password credential, repeatable (needs -realm)", func(s string) error {
+		u, p, ok := strings.Cut(s, ":")
+		if !ok || u == "" {
+			return errors.New("want username:password")
+		}
+		users[u] = p
+		return nil
+	})
 	verbose := flag.Bool("v", false, "enable debug logging")
 	flag.Parse()
 	server.RPS, server.Burst = *rps, 2**rps
+	if (*realm != "") != (len(users) > 0) {
+		slog.Error("auth needs both -realm and -user")
+		os.Exit(1)
+	}
+	if *realm != "" {
+		server.Credentials = server.NewAuth(*realm, users)
+		slog.Info("long-term credential auth enabled", "realm", *realm, "users", len(users))
+	}
 	if *verbose {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}

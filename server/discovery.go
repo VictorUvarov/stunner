@@ -26,6 +26,8 @@ var discoveryIgnorable = map[uint16]bool{
 	stunmsg.AttrUsername:               true,
 	stunmsg.AttrMessageIntegrity:       true,
 	stunmsg.AttrMessageIntegritySHA256: true,
+	stunmsg.AttrRealm:                  true,
+	stunmsg.AttrNonce:                  true,
 	stunmsg.AttrChangeRequest:          true,
 }
 
@@ -117,6 +119,10 @@ func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *n
 	if !ok {
 		return nil, nil
 	}
+	key, sha2, errResp := authenticate(pkt, req)
+	if errResp != nil {
+		return seal(errResp, nil, false), d.conns[i][j]
+	}
 
 	oi, oj := i, j
 	if v, found := req.Get(stunmsg.AttrChangeRequest); found {
@@ -142,7 +148,7 @@ func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *n
 		resp.AddAddress(stunmsg.AttrResponseOrigin, localAddrPort(out))
 		resp.AddAddress(stunmsg.AttrOtherAddress, localAddrPort(d.conns[i^1][j^1]))
 	}
-	return seal(resp), out
+	return seal(resp, key, sha2), out
 }
 
 // localAddrPort returns conn's bound address as a netip.AddrPort.

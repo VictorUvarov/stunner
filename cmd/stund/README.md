@@ -18,7 +18,20 @@ go build ./cmd/stund
 | `-rps` | `10` | per-IP request rate limit, with 2× burst headroom (`0` disables) |
 | `-alt-ip` | off | second IP; enables RFC 5780 NAT discovery (four UDP sockets) |
 | `-alt-port` | primary + 1 | alternate port for NAT discovery |
+| `-realm` | off | enables long-term credential auth (RFC 8489 §9.2); needs `-user` |
+| `-user` | — | `username:password` credential, repeatable; needs `-realm` |
 | `-v` | off | debug logging (logs each handled request) |
+
+With auth enabled, only clients that know a listed username/password get
+answers — anyone else gets a 401 challenge:
+
+```sh
+./stund -realm example.org -user alice:s3cret -user bob:hunter2
+```
+
+Note the passwords are visible in the process list (`ps`); for anything
+beyond a private deployment, start it from a wrapper that keeps the
+credentials out of shell history.
 
 NAT discovery mode needs two public IPs on the machine and an explicit IP
 in `-addr`, e.g.:

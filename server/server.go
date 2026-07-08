@@ -14,13 +14,16 @@ import (
 // Software is the SOFTWARE attribute value stamped on every response.
 var Software = "stund"
 
-// ignorable lists comprehension-required attributes we accept but don't act
-// on (auth is not implemented; a Binding response needs none of them). Any
-// other comprehension-required attribute triggers a 420 per RFC 8489 §6.3.1.
+// ignorable lists comprehension-required attributes we understand and never
+// count as unknown: the auth attributes (acted on when Credentials is set,
+// harmless otherwise). Any other comprehension-required attribute triggers
+// a 420 per RFC 8489 §6.3.1.
 var ignorable = map[uint16]bool{
 	stunmsg.AttrUsername:               true,
 	stunmsg.AttrMessageIntegrity:       true,
 	stunmsg.AttrMessageIntegritySHA256: true,
+	stunmsg.AttrRealm:                  true,
+	stunmsg.AttrNonce:                  true,
 }
 
 // Serve answers Binding Requests on conn until it is closed, replying to
@@ -56,12 +59,18 @@ func Serve(conn *net.UDPConn) error {
 // handle turns one datagram into a response, or nil to stay silent.
 // Non-STUN traffic, malformed messages, bad fingerprints, and non-Binding
 // message types are all dropped without a reply, per RFC 8489 §6.3.
+// Authentication (when enabled) runs before the unknown-attribute check,
+// as RFC 8489 §6.3.1 orders it.
 func handle(pkt []byte, src netip.AddrPort) []byte {
 	req, ok := validate(pkt, ignorable)
 	if !ok {
 		return nil
 	}
-	return seal(respond(req, src, ignorable))
+	key, sha2, errResp := authenticate(pkt, req)
+	if errResp != nil {
+		return seal(errResp, nil, false)
+	}
+	return seal(respond(req, src, ignorable), key, sha2)
 }
 
 // validate parses pkt and reports whether it is a Binding Request with an
@@ -93,10 +102,19 @@ func respond(req *stunmsg.Message, src netip.AddrPort, ignore map[uint16]bool) *
 	return resp
 }
 
-// seal appends the trailing attributes every response carries (SOFTWARE,
-// then FINGERPRINT, which must be last) and marshals.
-func seal(resp *stunmsg.Message) []byte {
+// seal appends the trailing attributes every response carries and marshals:
+// SOFTWARE, then — for authenticated exchanges — MESSAGE-INTEGRITY(-SHA256)
+// keyed with key and matching the variant the client used (RFC 8489 §9.2.4),
+// then FINGERPRINT, which must be last.
+func seal(resp *stunmsg.Message, key []byte, sha2 bool) []byte {
 	resp.AddSoftware(Software)
+	if key != nil {
+		if sha2 {
+			resp.AddMessageIntegritySHA256(key)
+		} else {
+			resp.AddMessageIntegrity(key)
+		}
+	}
 	resp.AddFingerprint()
 	return resp.Marshal()
 }

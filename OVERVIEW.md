@@ -44,10 +44,10 @@ parse, respond.
    OTHER-ADDRESS, RESPONSE-ORIGIN, CHANGE-REQUEST, answering from alternate
    port/IP so clients can classify their NAT. Full mode needs two public
    IPs.~~ Done (mapping + filtering tests; PADDING/RESPONSE-PORT skipped).
-5. **Auth** — RFC 8489 long-term credentials: 401 challenge with REALM/NONCE,
+5. ~~**Auth** — RFC 8489 long-term credentials: 401 challenge with REALM/NONCE,
    MESSAGE-INTEGRITY(-SHA256) validation. Opt-in; anonymous binding stays the
    default (public STUN servers run unauthenticated — the response contains
-   nothing an on-path attacker doesn't already know).
+   nothing an on-path attacker doesn't already know).~~ Done.
 
 Skipped deliberately: TURN relaying, TLS/DTLS transport.
 
@@ -118,3 +118,20 @@ Skipped deliberately: TURN relaying, TLS/DTLS transport.
   servers. PADDING and RESPONSE-PORT (fragment/lifetime tests) skipped;
   as comprehension-required attrs they 420 too, which degrades those
   client tests gracefully.
+- **2026-07-08** — Long-term credential auth (phase 5, roadmap complete).
+  `stunmsg`: LongTermKey (MD5 per §9.2.2), Add/VerifyMessageIntegrity in
+  SHA-1 and SHA-256 variants sharing one helper; verification rewrites the
+  header length as if the integrity attribute were last (§14.5), so a
+  trailing FINGERPRINT still verifies. SHA-1 checked against the RFC 5769
+  §2.4 vector byte-for-byte; SHA-256 has no published vector, so round-trip
+  tested. `server`: opt-in via the `Credentials` package var
+  (`-realm`/`-user` flags); §9.2.4 flow — no integrity → 401 + REALM/NONCE,
+  missing auth attrs → 400, expired nonce → 438, bad key → 401.
+  Nonces are stateless (hex of expiry ‖ HMAC-SHA256(secret, expiry), 5 min
+  TTL, per-process secret), so there's no nonce table to store or flood.
+  Responses are signed with the client's variant. Deliberately skipped:
+  PASSWORD-ALGORITHMS negotiation and the §9.2 security-feature nonce
+  cookie (obMatJos2), truncated SHA-256 MACs, SASLprep (usernames/passwords
+  are compared as raw bytes). Verified by loopback tests plus independent
+  Python clients against the binary, now committed under `test/`
+  (binding + auth handshake, runnable against any stund).

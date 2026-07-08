@@ -26,6 +26,8 @@ const (
 	AttrMessageIntegrity       = 0x0008
 	AttrErrorCode              = 0x0009
 	AttrUnknownAttributes      = 0x000A
+	AttrRealm                  = 0x0014
+	AttrNonce                  = 0x0015
 	AttrMessageIntegritySHA256 = 0x001C
 	AttrXORMappedAddress       = 0x0020
 	AttrSoftware               = 0x8022

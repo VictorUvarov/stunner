@@ -29,7 +29,7 @@ serve loop returns. That's the whole lifecycle.
 |---|---|
 | Valid Binding Request | Success response carrying the sender's address (XOR-MAPPED-ADDRESS) |
 | … containing an attribute we're required to understand but don't | Error 420 listing the offending attributes, so the client knows why |
-| … containing auth attributes (USERNAME, MESSAGE-INTEGRITY) | Ignored — this server doesn't do auth — and answered normally |
+| … containing auth attributes (USERNAME, MESSAGE-INTEGRITY) | Ignored and answered normally — unless auth is enabled, see below |
 | Anything else: random non-STUN bytes, corrupt messages, bad checksums | Silence |
 | A source IP over its rate budget (`RPS`/`Burst` package vars) | Silence |
 
@@ -44,6 +44,31 @@ so the client can match it to what it sent.
 Replies go out the same socket the request came in on. That matters: the
 client is waiting for an answer from the exact ip:port it messaged, and its
 router will only let the reply through on that path.
+
+## Authentication (opt-in)
+
+Public STUN servers run unauthenticated — the response contains nothing an
+on-path observer doesn't already know. But if you want to restrict who may
+use the server, set the `Credentials` package variable and every request
+must prove knowledge of a username/password using
+[RFC 8489 §9.2](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2)
+long-term credentials:
+
+```go
+server.Credentials = server.NewAuth("example.org", map[string]string{"alice": "s3cret"})
+```
+
+The exchange is challenge/response. A first, unauthenticated request draws
+a 401 carrying the realm and a nonce; the client retries with USERNAME,
+REALM, NONCE, and a MESSAGE-INTEGRITY (or MESSAGE-INTEGRITY-SHA256) HMAC
+keyed with MD5(user:realm:password). Expired nonces draw a 438 with a fresh
+one; a bad password draws another 401. Successful responses are signed with
+the same key and hash variant the client used.
+
+Nonces are stateless: an expiry timestamp plus an HMAC under a per-process
+random secret (5 minute lifetime). Nothing is stored per client, so the
+nonce table can't be flooded; a server restart just costs clients one extra
+438 round trip.
 
 ## TCP differences
 
