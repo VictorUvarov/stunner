@@ -1,19 +1,17 @@
-# stun — a STUN server in Go
+# Design overview
 
-A from-scratch STUN server (RFC 8489), built to learn the protocol while ending up
-with something actually usable. Stdlib only — `net`, `crypto`, `encoding/binary`
-cover everything STUN needs; no dependencies.
+Implementation notes for stund (see [README.md](README.md) for what/why).
+Built from scratch against RFC 8489, stdlib only — `net`, `crypto`,
+`encoding/binary` cover everything STUN needs.
 
-This document is the living overview. Every commit updates the **Progress log**
+This is the living design doc. Every commit updates the **Progress log**
 below and, when the design changes, the sections above it.
 
-## What STUN does
+## Protocol core
 
-STUN (Session Traversal Utilities for NAT) lets a client behind a NAT discover
-its public IP and port. The client sends a **Binding Request**; the server
-replies with the source address it saw the packet come from, encoded in an
-**XOR-MAPPED-ADDRESS** attribute. That's the whole core protocol — the server
-is stateless and never relays traffic (that's TURN, out of scope).
+The server handles one exchange: a client sends a **Binding Request**, the
+server replies with the source address the packet arrived from, encoded as
+**XOR-MAPPED-ADDRESS**. Stateless, no relaying.
 
 Wire format in one paragraph: every message is a 20-byte header — 2-byte type,
 2-byte length, the 4-byte magic cookie `0x2112A442`, and a 12-byte transaction
@@ -58,3 +56,4 @@ the response contains nothing an on-path attacker doesn't already know).
 ## Progress log
 
 - **2026-07-07** — Project start: repo, Go module, this overview.
+- **2026-07-07** — Split docs: user-facing README.md, this file now dev-only.
