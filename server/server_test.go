@@ -18,8 +18,11 @@ func startServer(t *testing.T) *net.UDPConn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go Serve(srv)
-	t.Cleanup(func() { srv.Close() })
+	// Join the serve goroutine on cleanup: it may still be mid-handle when
+	// the socket closes, and the next test could be rewriting Credentials.
+	done := make(chan struct{})
+	go func() { defer close(done); Serve(srv) }()
+	t.Cleanup(func() { srv.Close(); <-done })
 
 	client, err := net.DialUDP("udp", nil, srv.LocalAddr().(*net.UDPAddr))
 	if err != nil {

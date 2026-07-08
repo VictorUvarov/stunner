@@ -58,8 +58,8 @@ deferred items live at the bottom of this list until they're done.
    protection (nonce cookie + security-feature bits), USERHASH username
    anonymity, truncated MESSAGE-INTEGRITY-SHA256 acceptance, OpaqueString
    string preparation.~~ Done.
-7. **RFC 5780, complete** — PADDING and RESPONSE-PORT so clients can run
-   fragment and binding-lifetime tests.
+7. ~~**RFC 5780, complete** — PADDING and RESPONSE-PORT so clients can run
+   fragment and binding-lifetime tests.~~ Done.
 8. **TLS + DTLS transports** — RFC 8489 §6.2.3 (`stuns`, port 5349),
    including the ALTERNATE-SERVER / ALTERNATE-DOMAIN redirect machinery
    (§10, §14.9, §14.15).
@@ -178,3 +178,21 @@ different threat model, not part of STUN itself).
     bytes in multiples of 4 per §14.6 (sending stays full-length).
   Python auth client extended with the negotiated USERHASH flow; both
   clients pass against the binary alongside 33 Go tests.
+- **2026-07-08** — RFC 5780 completed (phase 7): PADDING and RESPONSE-PORT
+  in the discovery usage. RESPONSE-PORT (§7.5) redirects the success
+  response to the named port on the source IP — the binding-lifetime test —
+  while the mapped-address attributes keep reflecting where the request
+  actually came from; errors always go back to the true source, so a bad
+  request can't point a reply at a port its sender doesn't hold. PADDING
+  (§6.1) echoes as junk bytes sized to the outgoing interface's MTU rounded
+  up to a 4-multiple (clamped under the 64 KiB datagram limit — Linux
+  loopback reports MTU 65536), forcing response-direction fragmentation;
+  the discovery read buffer grew to 64 KiB so oversized *requests* (the
+  other fragment direction) survive the read, and the sockets raise
+  SO_SNDBUF because Darwin caps a UDP send at that size (9216 default).
+  PADDING + RESPONSE-PORT in one request is the RFC's mandated 400.
+  Running the suite under `-race` for this exposed two pre-existing test
+  bugs, both "package var written while a previous server goroutine still
+  runs": serve-loop goroutines are now joined in test cleanup, and the auth
+  handshake loops became subtests so each iteration's server is torn down
+  before the next writes `Credentials`.

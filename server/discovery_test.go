@@ -24,8 +24,9 @@ func startDiscovery(t *testing.T) *Discovery {
 			d.conns[i][j] = conn
 		}
 	}
-	go d.Serve()
-	t.Cleanup(func() { d.Close() })
+	done := make(chan struct{})
+	go func() { defer close(done); d.Serve() }()
+	t.Cleanup(func() { d.Close(); <-done })
 	return d
 }
 
@@ -37,6 +38,7 @@ func discoveryClient(t *testing.T) *net.UDPConn {
 	}
 	t.Cleanup(func() { c.Close() })
 	c.SetDeadline(time.Now().Add(2 * time.Second))
+	c.SetWriteBuffer(1 << 16) // Darwin caps datagrams at SO_SNDBUF; padded requests are bigger
 	return c
 }
 
@@ -47,7 +49,7 @@ func sendTo(t *testing.T, c *net.UDPConn, d *Discovery, req *stunmsg.Message, i,
 	if _, err := c.WriteToUDPAddrPort(req.Marshal(), localAddrPort(d.conns[i][j])); err != nil {
 		t.Fatal(err)
 	}
-	buf := make([]byte, 1500)
+	buf := make([]byte, 1<<16) // padded responses overshoot the MTU by design
 	n, from, err := c.ReadFromUDPAddrPort(buf)
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +121,99 @@ func TestDiscoveryChangeRequest(t *testing.T) {
 		if err != nil || origin != from {
 			t.Errorf("flags %#x: RESPONSE-ORIGIN = %v, sent from %v", tc.flags, origin, from)
 		}
+	}
+}
+
+func TestDiscoveryResponsePort(t *testing.T) {
+	d := startDiscovery(t)
+	sender := discoveryClient(t)
+	receiver := discoveryClient(t)
+
+	req := newRequest(t)
+	port := localAddrPort(receiver).Port()
+	req.Add(stunmsg.AttrResponsePort, []byte{byte(port >> 8), byte(port), 0, 0})
+	if _, err := sender.WriteToUDPAddrPort(req.Marshal(), localAddrPort(d.conns[0][0])); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]byte, 1500)
+	n, from, err := receiver.ReadFromUDPAddrPort(buf)
+	if err != nil {
+		t.Fatal("no response on the RESPONSE-PORT socket:", err)
+	}
+	resp, err := stunmsg.Parse(buf[:n])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+	if want := localAddrPort(d.conns[0][0]); from != want {
+		t.Fatalf("from = %v, want receiving socket %v", from, want)
+	}
+	// The mapped address reflects where the request came from, not where
+	// the response was redirected to.
+	xor, err := resp.XORMappedAddress()
+	if err != nil || xor != localAddrPort(sender) {
+		t.Fatalf("mapped = %v (%v), want sender %v", xor, err, localAddrPort(sender))
+	}
+}
+
+func TestDiscoveryResponsePortMalformedIsDropped(t *testing.T) {
+	d := startDiscovery(t)
+	c := discoveryClient(t)
+	req := newRequest(t)
+	req.Add(stunmsg.AttrResponsePort, []byte{0x12, 0x34}) // missing RFFU bytes
+	if _, err := c.WriteToUDPAddrPort(req.Marshal(), localAddrPort(d.conns[0][0])); err != nil {
+		t.Fatal(err)
+	}
+	c.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	if n, _, err := c.ReadFromUDPAddrPort(make([]byte, 1500)); err == nil {
+		t.Fatalf("got %d-byte response, want silence", n)
+	}
+}
+
+func TestDiscoveryPadding(t *testing.T) {
+	d := startDiscovery(t)
+	c := discoveryClient(t)
+	req := newRequest(t)
+	// An oversized request also proves the read loop takes datagrams
+	// beyond a typical MTU, which the request-direction fragment test needs.
+	req.Add(stunmsg.AttrPadding, make([]byte, 20*1024))
+	resp, _ := sendTo(t, c, d, req, 0, 0)
+
+	if resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+	pad, ok := resp.Get(stunmsg.AttrPadding)
+	if !ok {
+		t.Fatal("response has no PADDING")
+	}
+	if want := paddingLen(d.conns[0][0]); len(pad) != want {
+		t.Fatalf("padding length = %d, want %d", len(pad), want)
+	}
+	if len(pad)%4 != 0 || len(pad) < 1280 {
+		t.Fatalf("padding length = %d, want a 4-multiple >= min MTU", len(pad))
+	}
+}
+
+func TestDiscoveryPaddingWithResponsePortIs400(t *testing.T) {
+	d := startDiscovery(t)
+	c := discoveryClient(t)
+	req := newRequest(t)
+	req.Add(stunmsg.AttrPadding, make([]byte, 4))
+	req.Add(stunmsg.AttrResponsePort, []byte{0x12, 0x34, 0, 0})
+	// Arrives back at the sender itself: the redirect must not apply.
+	resp, from := sendTo(t, c, d, req, 0, 0)
+
+	if resp.Type != stunmsg.BindingError {
+		t.Fatalf("type = %v", resp)
+	}
+	if code := errorCode(t, resp); code != 400 {
+		t.Fatalf("error code = %d, want 400", code)
+	}
+	if want := localAddrPort(d.conns[0][0]); from != want {
+		t.Fatalf("error from = %v, want receiving socket %v", from, want)
 	}
 }
 

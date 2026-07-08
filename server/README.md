@@ -102,20 +102,31 @@ addresses on request, so the client can observe what gets through.
 
 `Discovery` implements this
 ([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)): four UDP
-sockets (two IPs × two ports), plus three attributes:
+sockets (two IPs × two ports), plus five attributes:
 
 - **RESPONSE-ORIGIN** — where this response was actually sent from.
 - **OTHER-ADDRESS** — the alternate IP:port the client could probe.
 - **CHANGE-REQUEST** — client asks: reply from the other IP and/or port.
+- **RESPONSE-PORT** — client asks: send the reply to this port instead of
+  the one I sent from. Used to time out NAT bindings (how long does my
+  mapping survive without traffic?) without refreshing the binding under
+  test.
+- **PADDING** — client asks: inflate your reply with this many junk bytes
+  (we use the outgoing interface's MTU, as the RFC recommends), so both
+  request and response overshoot the path MTU and the client learns whether
+  its NAT passes IP fragments.
 
 ```go
 d, _ := server.ListenDiscovery(ip1, ip2, 3478, 3479)
 err := d.Serve()   // blocks; d.Close() ends it
 ```
 
-Error responses always leave from the socket that received the request.
-PADDING and RESPONSE-PORT (fragment/lifetime tests) are not implemented;
-being comprehension-required attributes, they correctly draw a 420.
+A request combining PADDING and RESPONSE-PORT draws a 400, per the RFC —
+a fragment test redirected to a port nobody reads couldn't be observed
+anyway. Error responses always leave from the socket that received the
+request, back to the true source: RESPONSE-PORT redirects successes only,
+so a failing request can't aim even a small reply at a port its sender
+doesn't hold.
 
 ## Tests
 

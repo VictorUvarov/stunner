@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 	"net/netip"
@@ -12,16 +13,15 @@ import (
 
 // Discovery serves the NAT behavior discovery usage (RFC 5780): the Binding
 // service on four UDP sockets — two IPs × two ports — plus CHANGE-REQUEST,
-// RESPONSE-ORIGIN, and OTHER-ADDRESS so clients can probe how their NAT
-// maps and filters. PADDING and RESPONSE-PORT (fragment and lifetime tests)
-// are not implemented; being comprehension-required, they correctly draw a
-// 420 response.
+// RESPONSE-ORIGIN, and OTHER-ADDRESS so clients can probe how their NAT maps
+// and filters, RESPONSE-PORT for binding-lifetime tests, and PADDING for
+// fragment tests.
 type Discovery struct {
 	conns [2][2]*net.UDPConn // [ip][port]
 }
 
-// discoveryIgnorable is the plain ignorable set plus CHANGE-REQUEST, which
-// this usage understands and honors.
+// discoveryIgnorable is the plain ignorable set plus the RFC 5780 request
+// attributes, which this usage understands and honors.
 var discoveryIgnorable = map[uint16]bool{
 	stunmsg.AttrUsername:               true,
 	stunmsg.AttrMessageIntegrity:       true,
@@ -31,6 +31,8 @@ var discoveryIgnorable = map[uint16]bool{
 	stunmsg.AttrPasswordAlgorithm:      true,
 	stunmsg.AttrUserhash:               true,
 	stunmsg.AttrChangeRequest:          true,
+	stunmsg.AttrPadding:                true,
+	stunmsg.AttrResponsePort:           true,
 }
 
 // ListenDiscovery opens the four sockets discovery needs: each of ip1 and
@@ -91,10 +93,17 @@ func (d *Discovery) Serve() error {
 	return nil
 }
 
-// serveSocket is the read loop for socket [i][j].
+// serveSocket is the read loop for socket [i][j]. The buffer takes the
+// largest possible datagram, not an MTU: fragment tests (PADDING) send
+// requests deliberately bigger than the path MTU, and a short read here
+// would truncate them into silence.
 func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 	conn := d.conns[i][j]
-	buf := make([]byte, 1500)
+	// Padded responses can exceed the OS default datagram ceiling (Darwin
+	// caps sends at SO_SNDBUF, 9216 by default). Best effort: on failure,
+	// oversized sends just keep failing as they would have anyway.
+	conn.SetWriteBuffer(1 << 16)
+	buf := make([]byte, 1<<16)
 	for {
 		n, src, err := conn.ReadFromUDPAddrPort(buf)
 		if err != nil {
@@ -106,30 +115,50 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 		if !lim.allow(src.Addr(), time.Now()) {
 			continue
 		}
-		if resp, out := d.handle(buf[:n], src, i, j); resp != nil {
-			out.WriteToUDPAddrPort(resp, src)
+		if resp, out, dst := d.handle(buf[:n], src, i, j); resp != nil {
+			out.WriteToUDPAddrPort(resp, dst)
 		}
 	}
 }
 
 // handle builds the response for a datagram received on socket [i][j] and
-// picks the socket to send it from: CHANGE-REQUEST flags flip the IP and/or
-// port index (RFC 5780 §6.1, Table 1). Error responses always leave from
-// the receiving socket.
-func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *net.UDPConn) {
+// picks the socket to send it from and the address to send it to:
+// CHANGE-REQUEST flags flip the IP and/or port index (RFC 5780 §6.1,
+// Table 1), RESPONSE-PORT redirects a success to that port on the source
+// IP (§7.5). Error responses always leave from the receiving socket back
+// to the true source, so a misbehaving request can't aim even a small
+// reply at a port its sender doesn't hold.
+func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *net.UDPConn, netip.AddrPort) {
 	req, ok := validate(pkt, discoveryIgnorable)
 	if !ok {
-		return nil, nil
+		return nil, nil, netip.AddrPort{}
 	}
 	key, sha2, errResp := authenticate(pkt, req)
 	if errResp != nil {
-		return seal(errResp, nil, false), d.conns[i][j]
+		return seal(errResp, nil, false), d.conns[i][j], src
+	}
+
+	_, padding := req.Get(stunmsg.AttrPadding)
+	rp, redirect := req.Get(stunmsg.AttrResponsePort)
+	dst := src
+	if redirect {
+		if padding {
+			// §6.1: PADDING plus RESPONSE-PORT is a 400 — a fragment
+			// test redirected elsewhere could never be observed anyway.
+			resp := &stunmsg.Message{Type: stunmsg.BindingError, TransactionID: req.TransactionID}
+			resp.AddErrorCode(400, "Bad Request")
+			return seal(resp, key, sha2), d.conns[i][j], src
+		}
+		if len(rp) != 4 { // 16-bit port + 2 bytes RFFU (§7.5)
+			return nil, nil, netip.AddrPort{}
+		}
+		dst = netip.AddrPortFrom(src.Addr(), binary.BigEndian.Uint16(rp[:2]))
 	}
 
 	oi, oj := i, j
 	if v, found := req.Get(stunmsg.AttrChangeRequest); found {
 		if len(v) != 4 {
-			return nil, nil
+			return nil, nil, netip.AddrPort{}
 		}
 		if v[3]&stunmsg.ChangeIP != 0 {
 			oi ^= 1
@@ -140,20 +169,60 @@ func (d *Discovery) handle(pkt []byte, src netip.AddrPort, i, j int) ([]byte, *n
 	}
 
 	resp := respond(req, src, discoveryIgnorable)
-	out := d.conns[oi][oj]
 	if resp.Type != stunmsg.BindingSuccess {
-		out = d.conns[i][j]
-	} else {
-		// RFC 5780 §6.1: success responses carry MAPPED-ADDRESS too,
-		// where the response actually originates, and the full alternate.
-		resp.AddAddress(stunmsg.AttrMappedAddress, src)
-		resp.AddAddress(stunmsg.AttrResponseOrigin, localAddrPort(out))
-		resp.AddAddress(stunmsg.AttrOtherAddress, localAddrPort(d.conns[i^1][j^1]))
+		return seal(resp, key, sha2), d.conns[i][j], src
 	}
-	return seal(resp, key, sha2), out
+	// RFC 5780 §6.1: success responses carry MAPPED-ADDRESS too,
+	// where the response actually originates, and the full alternate.
+	out := d.conns[oi][oj]
+	resp.AddAddress(stunmsg.AttrMappedAddress, src)
+	resp.AddAddress(stunmsg.AttrResponseOrigin, localAddrPort(out))
+	resp.AddAddress(stunmsg.AttrOtherAddress, localAddrPort(d.conns[i^1][j^1]))
+	if padding {
+		resp.Add(stunmsg.AttrPadding, make([]byte, paddingLen(out)))
+	}
+	return seal(resp, key, sha2), out, dst
 }
 
 // localAddrPort returns conn's bound address as a netip.AddrPort.
 func localAddrPort(conn *net.UDPConn) netip.AddrPort {
 	return conn.LocalAddr().(*net.UDPAddr).AddrPort()
+}
+
+// paddingLen returns the PADDING value size for responses leaving conn:
+// the outgoing interface's MTU rounded up to a multiple of four
+// (RFC 5780 §6.1), so the padded response overshoots the MTU and
+// exercises response-direction fragmentation. Clamped to keep the whole
+// datagram under the 64 KiB IP limit (Linux loopback reports MTU 65536);
+// an interface we can't identify gets the Ethernet default.
+func paddingLen(conn *net.UDPConn) int {
+	mtu := 1500
+	if ifi := interfaceByAddr(localAddrPort(conn).Addr()); ifi != nil {
+		mtu = ifi.MTU
+	}
+	return min((mtu+3)/4*4, 65000)
+}
+
+// interfaceByAddr finds the network interface bound to ip, or nil.
+func interfaceByAddr(ip netip.Addr) *net.Interface {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	for i := range ifs {
+		addrs, err := ifs[i].Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			if got, ok := netip.AddrFromSlice(ipn.IP); ok && got.Unmap() == ip.Unmap() {
+				return &ifs[i]
+			}
+		}
+	}
+	return nil
 }

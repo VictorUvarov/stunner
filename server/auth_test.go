@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -130,17 +131,22 @@ func wantSuccess(t *testing.T, raw []byte) *stunmsg.Message {
 // authenticate, and per §9.2.4 the response then carries legacy
 // MESSAGE-INTEGRITY — even when the request used the SHA-256 variant.
 func TestAuthLegacyHandshake(t *testing.T) {
+	// Subtests, not a plain loop: each startAuthServer writes Credentials,
+	// and only a subtest boundary runs the cleanup that stops the previous
+	// server before the next write.
 	for _, sha2 := range []bool{false, true} {
-		client := startAuthServer(t)
-		realm, nonce := challenge(t, client)
-		if string(realm) != testRealm {
-			t.Fatalf("realm = %q", realm)
-		}
-		raw := roundTripRaw(t, client, legacyRequest(t, realm, nonce, testUser, testPass, sha2))
-		wantSuccess(t, raw)
-		if !stunmsg.VerifyMessageIntegrity(raw, stunmsg.LongTermKey(testUser, testRealm, testPass)) {
-			t.Fatalf("request sha2=%v: response must carry legacy MESSAGE-INTEGRITY", sha2)
-		}
+		t.Run(fmt.Sprintf("sha2=%v", sha2), func(t *testing.T) {
+			client := startAuthServer(t)
+			realm, nonce := challenge(t, client)
+			if string(realm) != testRealm {
+				t.Fatalf("realm = %q", realm)
+			}
+			raw := roundTripRaw(t, client, legacyRequest(t, realm, nonce, testUser, testPass, sha2))
+			wantSuccess(t, raw)
+			if !stunmsg.VerifyMessageIntegrity(raw, stunmsg.LongTermKey(testUser, testRealm, testPass)) {
+				t.Fatal("response must carry legacy MESSAGE-INTEGRITY")
+			}
+		})
 	}
 }
 
@@ -148,13 +154,15 @@ func TestAuthLegacyHandshake(t *testing.T) {
 // anonymity; the response must be signed with MESSAGE-INTEGRITY-SHA256.
 func TestAuthNegotiatedHandshake(t *testing.T) {
 	for _, anon := range []bool{false, true} {
-		client := startAuthServer(t)
-		realm, nonce := challenge(t, client)
-		raw := roundTripRaw(t, client, negotiatedRequest(t, realm, nonce, testUser, testPass, anon))
-		wantSuccess(t, raw)
-		if !stunmsg.VerifyMessageIntegritySHA256(raw, stunmsg.LongTermKeySHA256(testUser, testRealm, testPass)) {
-			t.Fatalf("anon=%v: response MESSAGE-INTEGRITY-SHA256 did not verify", anon)
-		}
+		t.Run(fmt.Sprintf("anon=%v", anon), func(t *testing.T) {
+			client := startAuthServer(t)
+			realm, nonce := challenge(t, client)
+			raw := roundTripRaw(t, client, negotiatedRequest(t, realm, nonce, testUser, testPass, anon))
+			wantSuccess(t, raw)
+			if !stunmsg.VerifyMessageIntegritySHA256(raw, stunmsg.LongTermKeySHA256(testUser, testRealm, testPass)) {
+				t.Fatal("response MESSAGE-INTEGRITY-SHA256 did not verify")
+			}
+		})
 	}
 }
 
@@ -162,8 +170,8 @@ func TestAuthWrongCredentials(t *testing.T) {
 	client := startAuthServer(t)
 	realm, nonce := challenge(t, client)
 	for name, pkt := range map[string][]byte{
-		"wrong password": legacyRequest(t, realm, nonce, testUser, "wrong", false),
-		"unknown user":   legacyRequest(t, realm, nonce, "mallory", testPass, false),
+		"wrong password":   legacyRequest(t, realm, nonce, testUser, "wrong", false),
+		"unknown user":     legacyRequest(t, realm, nonce, "mallory", testPass, false),
 		"unknown userhash": negotiatedRequest(t, realm, nonce, "mallory", testPass, true),
 	} {
 		resp := roundTrip(t, client, pkt)

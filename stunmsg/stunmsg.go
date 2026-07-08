@@ -17,8 +17,8 @@ const (
 )
 
 // Attribute types (comprehension-required < 0x8000, optional >= 0x8000).
-// RESPONSE-ORIGIN, OTHER-ADDRESS, and CHANGE-REQUEST are from RFC 5780
-// (NAT behavior discovery); the rest are RFC 8489.
+// CHANGE-REQUEST, PADDING, RESPONSE-PORT, RESPONSE-ORIGIN, and OTHER-ADDRESS
+// are from RFC 5780 (NAT behavior discovery); the rest are RFC 8489.
 const (
 	AttrMappedAddress          = 0x0001
 	AttrChangeRequest          = 0x0003
@@ -32,6 +32,8 @@ const (
 	AttrPasswordAlgorithm      = 0x001D
 	AttrUserhash               = 0x001E
 	AttrXORMappedAddress       = 0x0020
+	AttrPadding                = 0x0026
+	AttrResponsePort           = 0x0027
 	AttrPasswordAlgorithms     = 0x8002
 	AttrAlternateDomain        = 0x8003
 	AttrSoftware               = 0x8022

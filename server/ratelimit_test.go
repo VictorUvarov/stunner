@@ -48,7 +48,9 @@ func TestLimiterGC(t *testing.T) {
 func TestServeRateLimits(t *testing.T) {
 	oldRPS, oldBurst := RPS, Burst
 	RPS, Burst = 5, 5
-	defer func() { RPS, Burst = oldRPS, oldBurst }()
+	// Restore via Cleanup, not defer: registered before startServer, it runs
+	// after startServer's cleanup has joined the serve goroutine that reads RPS.
+	t.Cleanup(func() { RPS, Burst = oldRPS, oldBurst })
 
 	client := startServer(t)
 	const sent = 20
