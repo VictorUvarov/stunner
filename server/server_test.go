@@ -1,0 +1,130 @@
+package server
+
+import (
+	"crypto/rand"
+	"net"
+	"net/netip"
+	"testing"
+	"time"
+
+	"stun/stunmsg"
+)
+
+// startServer runs Serve on a loopback socket and returns a client conn
+// already "connected" to it. Both close on test cleanup.
+func startServer(t *testing.T) *net.UDPConn {
+	t.Helper()
+	srv, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go Serve(srv)
+	t.Cleanup(func() { srv.Close() })
+
+	client, err := net.DialUDP("udp", nil, srv.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	client.SetDeadline(time.Now().Add(2 * time.Second))
+	return client
+}
+
+func newRequest(t *testing.T) *stunmsg.Message {
+	t.Helper()
+	m := &stunmsg.Message{Type: stunmsg.BindingRequest}
+	if _, err := rand.Read(m.TransactionID[:]); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func roundTrip(t *testing.T, client *net.UDPConn, pkt []byte) *stunmsg.Message {
+	t.Helper()
+	if _, err := client.Write(pkt); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 1500)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stunmsg.VerifyFingerprint(buf[:n]) {
+		t.Fatal("response fingerprint invalid")
+	}
+	resp, err := stunmsg.Parse(buf[:n])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestBinding(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	resp := roundTrip(t, client, req.Marshal())
+
+	if resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+	if resp.TransactionID != req.TransactionID {
+		t.Fatal("transaction ID not echoed")
+	}
+	ap, err := resp.XORMappedAddress()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := client.LocalAddr().(*net.UDPAddr).AddrPort()
+	if ap != netip.AddrPortFrom(want.Addr().Unmap(), want.Port()) {
+		t.Fatalf("mapped = %v, want %v", ap, want)
+	}
+}
+
+func TestUnknownRequiredAttrGets420(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	req.Add(0x7FFF, []byte{1, 2, 3, 4})
+	resp := roundTrip(t, client, req.Marshal())
+
+	if resp.Type != stunmsg.BindingError {
+		t.Fatalf("type = %v", resp)
+	}
+	ec, ok := resp.Get(stunmsg.AttrErrorCode)
+	if !ok || int(ec[2])*100+int(ec[3]) != 420 {
+		t.Fatalf("error code attr = %x", ec)
+	}
+	ua, ok := resp.Get(stunmsg.AttrUnknownAttributes)
+	if !ok || len(ua) != 2 || ua[0] != 0x7F || ua[1] != 0xFF {
+		t.Fatalf("unknown-attributes = %x", ua)
+	}
+}
+
+func TestIgnorableRequiredAttrStillSucceeds(t *testing.T) {
+	client := startServer(t)
+	req := newRequest(t)
+	req.Add(0x0006, []byte("user:name")) // USERNAME
+	if resp := roundTrip(t, client, req.Marshal()); resp.Type != stunmsg.BindingSuccess {
+		t.Fatalf("type = %v", resp)
+	}
+}
+
+func TestDropsSilently(t *testing.T) {
+	bad := newRequest(t)
+	bad.AddFingerprint()
+	badPkt := bad.Marshal()
+	badPkt[len(badPkt)-1] ^= 0xFF // corrupt the CRC
+
+	for name, pkt := range map[string][]byte{
+		"garbage":         []byte("definitely not stun"),
+		"bad fingerprint": badPkt,
+	} {
+		client := startServer(t)
+		if _, err := client.Write(pkt); err != nil {
+			t.Fatal(err)
+		}
+		client.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		if n, err := client.Read(make([]byte, 1500)); err == nil {
+			t.Errorf("%s: got %d-byte reply, want silence", name, n)
+		}
+	}
+}

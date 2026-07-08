@@ -2,8 +2,9 @@
 
 A small, fast STUN server written in Go. No dependencies, one binary.
 
-> **Status: early development.** The server isn't runnable yet — follow the
-> [progress log](OVERVIEW.md#progress-log) to see where things stand.
+> **Status: early development.** The core works — Binding over UDP — but
+> hardening (rate limiting, TCP) is still in progress. See the
+> [progress log](OVERVIEW.md#progress-log).
 
 ## What is this for?
 
@@ -22,14 +23,15 @@ Reasons to run your own instead of using a public one:
 
 ## Quick start
 
-*(Coming soon — this is the planned interface.)*
-
 ```sh
-go install stun/cmd/stund@latest
-stund -addr :3478
+git clone <this repo> && cd stun
+go build ./cmd/stund
+./stund              # listens on :3478, the standard STUN port
+./stund -addr :3479 -v   # custom port, debug logging
 ```
 
 Then point your WebRTC config (or any STUN client) at `stun:your-host:3478`.
+Stop it with Ctrl-C.
 
 ## What it will and won't do
 

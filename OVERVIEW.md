@@ -66,3 +66,13 @@ the response contains nothing an on-path attacker doesn't already know).
   spec requires the header length to already count the fingerprint attribute.
   MESSAGE-INTEGRITY is parsed as an opaque attribute — validation comes only
   if auth ever lands (roadmap #4).
+- **2026-07-07** — Phase 2 done: UDP server (`server/`) and `cmd/stund`
+  binary. Single-goroutine read loop: parse → handle → reply from the same
+  socket, so the response source port matches what the client expects.
+  Drops silently: non-STUN bytes, malformed framing, bad FINGERPRINT,
+  non-Binding types. Replies 420 + UNKNOWN-ATTRIBUTES for unrecognized
+  comprehension-required attributes, but whitelists USERNAME and
+  MESSAGE-INTEGRITY(-SHA256) as ignorable since Binding needs no auth.
+  Shutdown model: closing the socket ends `Serve` cleanly (SIGINT/SIGTERM
+  handler in main). Verified with package tests over real loopback sockets
+  plus an independent Python client against the built binary.
