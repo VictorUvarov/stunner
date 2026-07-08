@@ -49,18 +49,17 @@ A companion client, `stunc`, ships in the same repo — handy for checking a
 deployment, it prints back the address the server saw you as. The
 [flag reference](cmd/stund/README.md) covers everything `stund` accepts.
 
-## What it will and won't do
+## Features
 
-- ✅ STUN Binding over UDP and TCP (the thing WebRTC needs), per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)
-- ✅ Secure transports: `stuns` over TLS and DTLS (`-tls-cert`/`-tls-key`),
-  with certificate rotation picked up without a restart
-- ✅ Long-term credential auth (`-realm`/`-user`), including USERHASH and
-  password-algorithm negotiation
-- ✅ Per-IP rate limiting, on by default
-- ✅ NAT behavior discovery ([RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)) on servers with two IPs (`-alt-ip`)
-- ✅ Prometheus counters (`-metrics-addr`)
-- ❌ TURN (media relaying) — different, much heavier protocol; use
-  [coturn](https://github.com/coturn/coturn) if you need relaying
+| Feature | Details | Flags |
+|---|---|---|
+| **Binding over UDP & TCP** | The core STUN exchange WebRTC needs, per [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) | on by default |
+| **Secure transports** | `stuns` over TLS and DTLS, with certificate rotation picked up without a restart | `-tls-cert` / `-tls-key` |
+| **Long-term credential auth** | Including USERHASH and password-algorithm negotiation | `-realm` / `-user` |
+| **Per-IP rate limiting** | On by default | `-rps` |
+| **NAT behavior discovery** | [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780), on servers with two IPs | `-alt-ip` |
+| **Prometheus metrics** | Per-transport request/reply/error counters | `-metrics-addr` |
+| **Classic STUN** | RFC 3489 backwards compatibility | on by default |
 
 ### How it compares
 
@@ -74,44 +73,15 @@ your own is the privacy and reliability trade described above.
 
 ## Deployment
 
-**Docker** — the image is a static binary in an empty (`scratch`) image:
-
-```sh
-docker build -t stund -f deploy/Dockerfile .
-docker run --rm -p 3478:3478/udp -p 3478:3478/tcp stund
-```
-
-**systemd** — a hardened unit lives in [`deploy/stund.service`](deploy/stund.service):
-
-```sh
-go build -o /usr/local/bin/stund ./cmd/stund
-cp deploy/stund.service /etc/systemd/system/ && systemctl enable --now stund
-```
-
-**DNS** — [RFC 8489 §8](https://datatracker.ietf.org/doc/html/rfc8489#section-8)
-clients discover servers through SRV records, which also let you move or
-load-balance the service later without touching client config:
-
-```dns
-_stun._udp.example.org.  IN SRV 0 0 3478 stun.example.org.
-_stun._tcp.example.org.  IN SRV 0 0 3478 stun.example.org.
-_stuns._tcp.example.org. IN SRV 0 0 5349 stun.example.org.  ; TLS
-_stuns._udp.example.org. IN SRV 0 0 5349 stun.example.org.  ; DTLS (RFC 7350)
-```
-
-The port numbers in the SRV records are authoritative for clients that look
-them up; 3478 (`stun`) and 5349 (`stuns`) are just the defaults for clients
-that don't.
-
-**Monitoring** — `-metrics-addr 127.0.0.1:9478` serves per-transport
-request/reply/error counters in Prometheus text format on `/metrics`. Bind
-it to localhost or an internal interface; it has no auth of its own.
+Docker, systemd, DNS SRV discovery, and monitoring are covered in
+[deploy/README.md](deploy/README.md).
 
 ## Documentation
 
 - [OVERVIEW.md](OVERVIEW.md) — design, wire-format notes, roadmap, and a
   per-commit progress log
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, run, and test locally
+- [deploy/README.md](deploy/README.md) — Docker, systemd, DNS, and monitoring
 - [cmd/stund/README.md](cmd/stund/README.md) — the full `stund` flag reference
 - [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — the STUN spec this
   implements, and [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) for
