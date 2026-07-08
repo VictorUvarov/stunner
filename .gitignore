@@ -1,0 +1,6 @@
+# build artifacts
+/bin/
+/stund
+
+# generated dev TLS certs (just cert)
+/dev/

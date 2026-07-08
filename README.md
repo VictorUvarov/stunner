@@ -45,7 +45,8 @@ Stop it with Ctrl-C.
 ## For developers
 
 Design, wire-format notes, roadmap, and a per-commit progress log live in
-[OVERVIEW.md](OVERVIEW.md).
+[OVERVIEW.md](OVERVIEW.md). To build, run, and test locally, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
