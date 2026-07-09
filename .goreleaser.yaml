@@ -1,0 +1,101 @@
+# GoReleaser config — cuts cross-platform binaries for stund/stunc and a
+# multi-arch stund container image on every `vX.Y.Z` tag push.
+# Docs: https://goreleaser.com
+version: 2
+
+project_name: stunner
+
+builds:
+  - id: stund
+    main: ./cmd/stund
+    binary: stund
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+  - id: stunc
+    main: ./cmd/stunc
+    binary: stunc
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - ids: [stund, stunc]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+# Per-arch images; the manifest below stitches them into one multi-arch tag.
+dockers:
+  - id: stund-amd64
+    ids: [stund]
+    goos: linux
+    goarch: amd64
+    dockerfile: deploy/Dockerfile.release
+    use: buildx
+    image_templates:
+      - "ghcr.io/victoruvarov/stunner:{{ .Version }}-amd64"
+      - "ghcr.io/victoruvarov/stunner:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/VictorUvarov/stunner"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+  - id: stund-arm64
+    ids: [stund]
+    goos: linux
+    goarch: arm64
+    dockerfile: deploy/Dockerfile.release
+    use: buildx
+    image_templates:
+      - "ghcr.io/victoruvarov/stunner:{{ .Version }}-arm64"
+      - "ghcr.io/victoruvarov/stunner:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/VictorUvarov/stunner"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+docker_manifests:
+  - name_template: "ghcr.io/victoruvarov/stunner:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/victoruvarov/stunner:{{ .Version }}-amd64"
+      - "ghcr.io/victoruvarov/stunner:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/victoruvarov/stunner:latest"
+    image_templates:
+      - "ghcr.io/victoruvarov/stunner:latest-amd64"
+      - "ghcr.io/victoruvarov/stunner:latest-arm64"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: VictorUvarov
+    name: stunner

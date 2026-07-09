@@ -22,6 +22,10 @@ import (
 	"stun/internal/server"
 )
 
+// version is the build version, overridden at release time via
+// -ldflags "-X main.version=...". Defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("stund failed", "err", err)
@@ -34,6 +38,10 @@ func main() {
 // exit point.
 func run() error {
 	o := parseFlags()
+	if o.showVersion {
+		fmt.Println(version)
+		return nil
+	}
 	if err := o.apply(); err != nil {
 		return err
 	}
@@ -80,6 +88,7 @@ type options struct {
 	alt         server.AlternateServer
 	metricsAddr string
 	verbose     bool
+	showVersion bool
 }
 
 func parseFlags() *options {
@@ -116,6 +125,7 @@ func parseFlags() *options {
 	flag.StringVar(&o.alt.Domain, "redirect-domain", "", "ALTERNATE-DOMAIN sent with redirects, for TLS/DTLS certificate validation")
 	flag.StringVar(&o.metricsAddr, "metrics-addr", "", "HTTP listen address serving Prometheus counters on /metrics (empty disables)")
 	flag.BoolVar(&o.verbose, "v", false, "enable debug logging")
+	flag.BoolVar(&o.showVersion, "version", false, "print version and exit")
 	flag.Parse()
 	return o
 }
