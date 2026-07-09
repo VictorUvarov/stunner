@@ -17,10 +17,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # `just lint` shells out to golangci-lint; install both up front.
       - uses: taiki-e/install-action@v2
         with:
-          tool: just,golangci-lint
+          tool: just
+      # `just lint` shells out to golangci-lint and adds GOPATH/bin to PATH,
+      # so install it there (go install is the method `just lint` recommends).
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
       - run: just lint
 
   test:
