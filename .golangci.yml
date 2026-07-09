@@ -1,0 +1,54 @@
+version: "2"
+
+# golangci-lint config. Run with `just lint` or `golangci-lint run ./...`.
+# Focus: correctness (defaults) plus function-size / complexity linters that
+# flag poorly organized code — the Go analogue of RuboCop's Metrics cops.
+
+linters:
+  enable:
+    # Complexity / organization — the reason this config exists.
+    - funlen       # function length (lines / statements)
+    - gocognit     # cognitive complexity (how hard to read)
+    - gocyclo      # cyclomatic complexity (branch count)
+    - cyclop       # cyclomatic, package-aware
+    - nestif       # deeply nested if blocks
+    - maintidx     # maintainability index
+    # General quality / bug-shaped.
+    - revive       # configurable style rules (RuboCop-like)
+    - gocritic     # opinionated diagnostics
+    - unconvert    # redundant type conversions
+    - unparam      # unused function parameters
+    - misspell     # spelling in comments/strings
+
+  settings:
+    errcheck:
+      # Diagnostic writers to stderr/usage output, whose error is not
+      # actionable and would be noise to check at every call site.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 20
+    gocyclo:
+      min-complexity: 15
+    cyclop:
+      max-complexity: 15
+    nestif:
+      min-complexity: 5
+
+  exclusions:
+    rules:
+      # Test files: allow long table-driven tests, helpers, and the idiomatic
+      # ignored errors in t.Cleanup / goroutine teardown.
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - gocyclo
+          - cyclop
+          - maintidx
+          - errcheck
+          - unparam

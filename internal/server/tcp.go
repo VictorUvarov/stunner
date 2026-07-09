@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 
@@ -39,7 +40,11 @@ func ServeTCP(ln net.Listener) error {
 // connection open: the framing survived, and §6.2.2 has the server keep
 // the connection open and let the client close it.
 func serveConn(c net.Conn, lim *limiter) {
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			slog.Warn("close failed", "err", err)
+		}
+	}()
 	m := Metrics["tcp"]
 	if _, ok := c.(*tls.Conn); ok {
 		m = Metrics["tls"]
@@ -47,7 +52,7 @@ func serveConn(c net.Conn, lim *limiter) {
 	src := c.RemoteAddr().(*net.TCPAddr).AddrPort()
 	buf := make([]byte, maxConnMessage)
 	for {
-		c.SetReadDeadline(time.Now().Add(idleTimeout))
+		_ = c.SetReadDeadline(time.Now().Add(idleTimeout))
 		if _, err := io.ReadFull(c, buf[:stunmsg.HeaderSize]); err != nil {
 			return
 		}
@@ -72,7 +77,7 @@ func serveConn(c net.Conn, lim *limiter) {
 			continue
 		}
 		m.countReply(resp)
-		c.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := c.Write(resp); err != nil {
 			return
 		}

@@ -17,8 +17,8 @@ import (
 	"stun/internal/stunmsg"
 )
 
-// Credentials, when non-nil, enables RFC 8489 §9.2 long-term credential
-// authentication on all serve loops: requests must carry a valid
+// Credentials enables RFC 8489 §9.2 long-term credential authentication on
+// all serve loops when non-nil: requests must carry a valid
 // MESSAGE-INTEGRITY(-SHA256) or are challenged with a 401. Set before Serve.
 var Credentials *Auth
 
@@ -42,6 +42,23 @@ var passwordAlgorithms = []uint16{stunmsg.PasswordAlgorithmSHA256, stunmsg.Passw
 // retained.
 type credential struct {
 	keyMD5, keySHA256 []byte
+}
+
+// key returns the response-signing key for the negotiated password algorithm.
+func (c credential) key(alg uint16) []byte {
+	if alg == stunmsg.PasswordAlgorithmSHA256 {
+		return c.keySHA256
+	}
+	return c.keyMD5
+}
+
+// verifyIntegrity checks pkt against key using MESSAGE-INTEGRITY-SHA256 when
+// sha2 is set, else legacy MESSAGE-INTEGRITY.
+func verifyIntegrity(pkt, key []byte, sha2 bool) bool {
+	if sha2 {
+		return stunmsg.VerifyMessageIntegritySHA256(pkt, key)
+	}
+	return stunmsg.VerifyMessageIntegrity(pkt, key)
 }
 
 // Auth is the long-term credential configuration. Create with NewAuth.
@@ -146,21 +163,9 @@ func (a *Auth) check(pkt []byte, req *stunmsg.Message) (key []byte, sha2 bool, e
 		return nil, false, bare400(req)
 	}
 
-	// Password-algorithm negotiation, guarded by the feature bit in the
-	// echoed nonce. Absent both attributes, the request is processed as
-	// though PASSWORD-ALGORITHM were MD5 (legacy client).
-	alg, negotiated := uint16(stunmsg.PasswordAlgorithmMD5), false
-	if passwordAlgorithmsBit(nonce) {
-		offered, err := req.PasswordAlgorithms()
-		chosen, hasChosen := req.PasswordAlgorithm()
-		if offered != nil || hasChosen {
-			if err != nil || offered == nil || !hasChosen ||
-				!slices.Equal(offered, passwordAlgorithms) ||
-				!slices.Contains(offered, chosen) {
-				return nil, false, bare400(req)
-			}
-			alg, negotiated = chosen, true
-		}
+	alg, negotiated, ok := negotiatePasswordAlgorithm(req, nonce)
+	if !ok {
+		return nil, false, bare400(req)
 	}
 
 	username := string(user)
@@ -175,15 +180,8 @@ func (a *Auth) check(pkt []byte, req *stunmsg.Message) (key []byte, sha2 bool, e
 		return nil, false, a.challenge(req, 401, "Unauthenticated")
 	}
 
-	key = cred.keyMD5
-	if alg == stunmsg.PasswordAlgorithmSHA256 {
-		key = cred.keySHA256
-	}
-	verify := stunmsg.VerifyMessageIntegrity
-	if mi256 {
-		verify = stunmsg.VerifyMessageIntegritySHA256
-	}
-	if !verify(pkt, key) {
+	key = cred.key(alg)
+	if !verifyIntegrity(pkt, key, mi256) {
 		return nil, false, a.challenge(req, 401, "Unauthenticated")
 	}
 
@@ -191,6 +189,30 @@ func (a *Auth) check(pkt []byte, req *stunmsg.Message) (key []byte, sha2 bool, e
 		return nil, false, a.challenge(req, 438, "Stale Nonce")
 	}
 	return key, negotiated, nil
+}
+
+// negotiatePasswordAlgorithm applies RFC 8489 §9.2.4 password-algorithm
+// negotiation, guarded by the feature bit in the echoed nonce. It returns the
+// algorithm the response key must use, whether the client negotiated one, and
+// ok=false if the offered/chosen attributes are malformed or inconsistent (a
+// 400). Absent both attributes — or the feature bit — the request is processed
+// as though PASSWORD-ALGORITHM were MD5 (legacy client).
+func negotiatePasswordAlgorithm(req *stunmsg.Message, nonce []byte) (alg uint16, negotiated, ok bool) {
+	alg = uint16(stunmsg.PasswordAlgorithmMD5)
+	if !passwordAlgorithmsBit(nonce) {
+		return alg, false, true
+	}
+	offered, err := req.PasswordAlgorithms()
+	chosen, hasChosen := req.PasswordAlgorithm()
+	if offered == nil && !hasChosen {
+		return alg, false, true
+	}
+	if err != nil || offered == nil || !hasChosen ||
+		!slices.Equal(offered, passwordAlgorithms) ||
+		!slices.Contains(offered, chosen) {
+		return alg, false, false
+	}
+	return chosen, true, true
 }
 
 // challenge builds the error response that carries REALM, a fresh NONCE,

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net"
 	"time"
 
@@ -69,12 +70,16 @@ func classicOverDTLS(pkt []byte) ([]byte, bool) {
 // over the rate budget are dropped without hanging up, like plain UDP: the
 // record boundary survives, so silence stays cheaper than a reply.
 func serveDatagramConn(c net.Conn, lim *limiter) {
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			slog.Warn("close failed", "err", err)
+		}
+	}()
 	m := Metrics["dtls"]
 	src := c.RemoteAddr().(*net.UDPAddr).AddrPort()
 	buf := make([]byte, maxConnMessage)
 	for {
-		c.SetReadDeadline(time.Now().Add(idleTimeout))
+		_ = c.SetReadDeadline(time.Now().Add(idleTimeout))
 		n, err := c.Read(buf)
 		if err != nil {
 			return
@@ -90,7 +95,7 @@ func serveDatagramConn(c net.Conn, lim *limiter) {
 		}
 		if resp != nil {
 			m.countReply(resp)
-			c.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := c.Write(resp); err != nil {
 				return
 			}

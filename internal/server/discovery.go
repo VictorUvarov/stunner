@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"errors"
+	"log/slog"
 	"net"
 	"net/netip"
 	"sync"
@@ -44,7 +45,9 @@ func ListenDiscovery(ip1, ip2 netip.Addr, port, altPort uint16) (*Discovery, err
 		for j, p := range []uint16{port, altPort} {
 			conn, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, p)))
 			if err != nil {
-				d.Close()
+				if cerr := d.Close(); cerr != nil {
+					slog.Warn("close during discovery setup failed", "err", cerr)
+				}
 				return nil, err
 			}
 			d.conns[i][j] = conn
@@ -53,16 +56,21 @@ func ListenDiscovery(ip1, ip2 netip.Addr, port, altPort uint16) (*Discovery, err
 	return d, nil
 }
 
-// Close closes all sockets, ending Serve.
+// Close closes all sockets, ending Serve. It closes every socket even if one
+// fails and returns the first error.
 func (d *Discovery) Close() error {
+	var err error
 	for _, row := range d.conns {
 		for _, c := range row {
-			if c != nil {
-				c.Close()
+			if c == nil {
+				continue
+			}
+			if e := c.Close(); e != nil && err == nil {
+				err = e
 			}
 		}
 	}
-	return nil
+	return err
 }
 
 // Serve answers on all four sockets until they are closed; the four read
@@ -102,7 +110,7 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 	// Padded responses can exceed the OS default datagram ceiling (Darwin
 	// caps sends at SO_SNDBUF, 9216 by default). Best effort: on failure,
 	// oversized sends just keep failing as they would have anyway.
-	conn.SetWriteBuffer(1 << 16)
+	_ = conn.SetWriteBuffer(1 << 16)
 	m := Metrics["discovery"]
 	buf := make([]byte, 1<<16)
 	for {
@@ -120,7 +128,9 @@ func (d *Discovery) serveSocket(i, j int, lim *limiter) error {
 		}
 		if resp, out, dst := d.handle(buf[:n], src, i, j); resp != nil {
 			m.countReply(resp)
-			out.WriteToUDPAddrPort(resp, dst)
+			// Best-effort send, like plain UDP: to the client a failed reply
+			// is just a lost packet, and it retransmits.
+			_, _ = out.WriteToUDPAddrPort(resp, dst)
 		}
 	}
 }

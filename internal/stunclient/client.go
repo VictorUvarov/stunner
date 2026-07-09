@@ -286,7 +286,7 @@ func (c *Client) roundTripDatagram(raw []byte, tid [12]byte) ([]byte, *stunmsg.M
 		}
 		deadline := time.Now().Add(wait)
 		for {
-			c.conn.SetReadDeadline(deadline)
+			_ = c.conn.SetReadDeadline(deadline)
 			n, err := c.conn.Read(c.buf)
 			if err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -308,8 +308,8 @@ func (c *Client) roundTripDatagram(raw []byte, tid [12]byte) ([]byte, *stunmsg.M
 // by the schedule's total duration as an overall deadline.
 func (c *Client) roundTripStream(raw []byte, tid [12]byte) ([]byte, *stunmsg.Message, error) {
 	deadline := time.Now().Add(c.cfg.total())
-	c.conn.SetDeadline(deadline)
-	defer c.conn.SetDeadline(time.Time{})
+	_ = c.conn.SetDeadline(deadline)
+	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
 	if _, err := c.conn.Write(raw); err != nil {
 		return nil, nil, err
 	}

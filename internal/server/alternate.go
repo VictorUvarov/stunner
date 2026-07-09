@@ -23,8 +23,8 @@ type AlternateServer struct {
 	Domain string
 }
 
-// Alternate, when non-nil, redirects every Binding Request via a 300
-// instead of serving it. Like Credentials, set it before calling any Serve
+// Alternate redirects every Binding Request via a 300 instead of serving it
+// when non-nil. Like Credentials, set it before calling any Serve
 // function. The NAT discovery usage never redirects: its value is the
 // specific four-socket topology of *this* server, so sending those clients
 // elsewhere is never what the operator means.

@@ -23,6 +23,14 @@ import (
 	"stun/internal/stunclient"
 )
 
+// Process exit codes.
+const (
+	exitOK       = 0 // success; reflexive address printed
+	exitFailure  = 1 // dial, transaction, or other runtime error
+	exitUsage    = 2 // wrong arguments or bad flags
+	exitRedirect = 3 // server answered 300 Try Alternate
+)
+
 func main() {
 	proto := flag.String("proto", "udp", "transport: udp, tcp, tls, or dtls")
 	user := flag.String("user", "", "username:password for servers that demand auth")
@@ -35,23 +43,34 @@ func main() {
 	flag.Parse()
 	if flag.NArg() != 1 {
 		flag.Usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	cfg := stunclient.Config{Software: *software}
 	if *user != "" {
 		u, p, ok := strings.Cut(*user, ":")
 		if !ok || u == "" {
-			fail(errors.New("-user wants username:password"))
+			os.Exit(fail(errors.New("-user wants username:password")))
 		}
 		cfg.Username, cfg.Password = u, p
 	}
 
-	c, err := dial(*proto, flag.Arg(0), *insecure, cfg)
+	os.Exit(query(*proto, flag.Arg(0), *insecure, cfg))
+}
+
+// query dials, asks for the reflexive address, prints it, and returns the
+// process exit code. It owns the connection, so its deferred Close runs on
+// every path — unlike calling os.Exit here, which would skip it.
+func query(proto, addr string, insecure bool, cfg stunclient.Config) int {
+	c, err := dial(proto, addr, insecure, cfg)
 	if err != nil {
-		fail(err)
+		return fail(err)
 	}
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "stunc: close:", err)
+		}
+	}()
 
 	ap, err := c.Binding()
 	if err != nil {
@@ -62,11 +81,12 @@ func main() {
 				fmt.Fprintf(os.Stderr, " (domain %s)", r.Domain)
 			}
 			fmt.Fprintln(os.Stderr)
-			os.Exit(3)
+			return exitRedirect
 		}
-		fail(err)
+		return fail(err)
 	}
 	fmt.Println(ap)
+	return exitOK
 }
 
 // dial connects addr over the chosen transport, filling in the scheme's
@@ -113,7 +133,9 @@ func dial(proto, addr string, insecure bool, cfg stunclient.Config) (*stunclient
 	}
 }
 
-func fail(err error) {
+// fail prints err to stderr and returns the exit code for it. Callers own the
+// os.Exit so any pending defers still run.
+func fail(err error) int {
 	fmt.Fprintln(os.Stderr, "stunc:", err)
-	os.Exit(1)
+	return exitFailure
 }

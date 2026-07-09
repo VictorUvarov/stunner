@@ -98,6 +98,14 @@ lint:
     if [[ -n "$unformatted" ]]; then
         echo "not gofmt'd:"; echo "$unformatted"; exit 1
     fi
+    # golangci-lint installs to GOPATH/bin, which isn't always on PATH.
+    export PATH="$(go env GOPATH)/bin:$PATH"
+    if ! command -v golangci-lint >/dev/null; then
+        echo "golangci-lint not found; install with:"
+        echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+        exit 1
+    fi
+    golangci-lint run ./...
     echo "ok"
 
 # Format all Go source in place.

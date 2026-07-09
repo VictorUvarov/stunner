@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -22,183 +23,252 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":3478", "listen address (UDP and TCP)")
-	tcp := flag.Bool("tcp", true, "also serve STUN over TCP")
-	rps := flag.Float64("rps", 10, "per-IP request rate limit (0 disables)")
-	altIP := flag.String("alt-ip", "", "second IP; enables RFC 5780 NAT discovery (requires explicit IP in -addr)")
-	altPort := flag.Uint("alt-port", 0, "alternate port for NAT discovery (default: primary port + 1)")
-	realm := flag.String("realm", "", "authentication realm (long-term credentials; needs -user)")
-	users := map[string]string{}
+	if err := run(); err != nil {
+		slog.Error("stund failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+// run wires up the daemon and blocks until a serve loop returns or shutdown
+// closes the sockets. All setup errors flow back here so main has the one
+// exit point.
+func run() error {
+	o := parseFlags()
+	if err := o.apply(); err != nil {
+		return err
+	}
+
+	d := &daemon{errc: make(chan error, 6)}
+	if err := d.startBinding(o); err != nil {
+		return err
+	}
+	if o.tcp {
+		if err := d.startTCP(o.addr); err != nil {
+			return err
+		}
+	}
+	if o.tlsCert != "" {
+		if err := d.startTLS(o); err != nil {
+			return err
+		}
+	}
+	if o.metricsAddr != "" {
+		if err := d.startMetrics(o.metricsAddr); err != nil {
+			return err
+		}
+	}
+
+	d.awaitShutdown()
+
+	// The first serve loop to return decides the exit code; a nil means a
+	// socket was closed during shutdown.
+	return <-d.errc
+}
+
+// options holds the parsed command-line flags.
+type options struct {
+	addr        string
+	tcp         bool
+	rps         float64
+	altIP       string
+	altPort     uint
+	realm       string
+	users       map[string]string
+	tlsAddr     string
+	tlsCert     string
+	tlsKey      string
+	alt         server.AlternateServer
+	metricsAddr string
+	verbose     bool
+}
+
+func parseFlags() *options {
+	o := &options{users: map[string]string{}}
+	flag.StringVar(&o.addr, "addr", ":3478", "listen address (UDP and TCP)")
+	flag.BoolVar(&o.tcp, "tcp", true, "also serve STUN over TCP")
+	flag.Float64Var(&o.rps, "rps", 10, "per-IP request rate limit (0 disables)")
+	flag.StringVar(&o.altIP, "alt-ip", "", "second IP; enables RFC 5780 NAT discovery (requires explicit IP in -addr)")
+	flag.UintVar(&o.altPort, "alt-port", 0, "alternate port for NAT discovery (default: primary port + 1)")
+	flag.StringVar(&o.realm, "realm", "", "authentication realm (long-term credentials; needs -user)")
 	flag.Func("user", "username:password credential, repeatable (needs -realm)", func(s string) error {
 		u, p, ok := strings.Cut(s, ":")
 		if !ok || u == "" {
 			return errors.New("want username:password")
 		}
-		users[u] = p
+		o.users[u] = p
 		return nil
 	})
-	tlsAddr := flag.String("tls-addr", ":5349", "TLS and DTLS listen address (active with -tls-cert)")
-	tlsCert := flag.String("tls-cert", "", "certificate file; with -tls-key, serves stuns over TLS and DTLS")
-	tlsKey := flag.String("tls-key", "", "private key file (needs -tls-cert)")
-	var alt server.AlternateServer
+	flag.StringVar(&o.tlsAddr, "tls-addr", ":5349", "TLS and DTLS listen address (active with -tls-cert)")
+	flag.StringVar(&o.tlsCert, "tls-cert", "", "certificate file; with -tls-key, serves stuns over TLS and DTLS")
+	flag.StringVar(&o.tlsKey, "tls-key", "", "private key file (needs -tls-cert)")
 	flag.Func("redirect", "ip:port to send clients to via 300 Try Alternate; repeatable, one per address family", func(s string) error {
 		ap, err := netip.ParseAddrPort(s)
 		if err != nil {
 			return err
 		}
 		if ap.Addr().Unmap().Is6() {
-			alt.V6 = ap
+			o.alt.V6 = ap
 		} else {
-			alt.V4 = ap
+			o.alt.V4 = ap
 		}
 		return nil
 	})
-	flag.StringVar(&alt.Domain, "redirect-domain", "", "ALTERNATE-DOMAIN sent with redirects, for TLS/DTLS certificate validation")
-	metricsAddr := flag.String("metrics-addr", "", "HTTP listen address serving Prometheus counters on /metrics (empty disables)")
-	verbose := flag.Bool("v", false, "enable debug logging")
+	flag.StringVar(&o.alt.Domain, "redirect-domain", "", "ALTERNATE-DOMAIN sent with redirects, for TLS/DTLS certificate validation")
+	flag.StringVar(&o.metricsAddr, "metrics-addr", "", "HTTP listen address serving Prometheus counters on /metrics (empty disables)")
+	flag.BoolVar(&o.verbose, "v", false, "enable debug logging")
 	flag.Parse()
-	server.RPS, server.Burst = *rps, 2**rps
-	if (*realm != "") != (len(users) > 0) {
-		slog.Error("auth needs both -realm and -user")
-		os.Exit(1)
-	}
-	if *realm != "" {
-		auth, err := server.NewAuth(*realm, users)
-		if err != nil {
-			slog.Error("bad credentials", "err", err)
-			os.Exit(1)
-		}
-		server.Credentials = auth
-		slog.Info("long-term credential auth enabled", "realm", *realm, "users", len(users))
-	}
-	if alt.Domain != "" && !alt.V4.IsValid() && !alt.V6.IsValid() {
-		slog.Error("-redirect-domain needs at least one -redirect target")
-		os.Exit(1)
-	}
-	if alt.V4.IsValid() || alt.V6.IsValid() {
-		server.Alternate = &alt
-		slog.Info("redirecting via 300 Try Alternate", "v4", alt.V4, "v6", alt.V6, "domain", alt.Domain)
-	}
-	if (*tlsCert != "") != (*tlsKey != "") {
-		slog.Error("TLS needs both -tls-cert and -tls-key")
-		os.Exit(1)
-	}
-	if *verbose {
+	return o
+}
+
+// apply validates cross-flag constraints and installs the parsed options into
+// the server package's globals.
+func (o *options) apply() error {
+	if o.verbose {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
+	server.RPS, server.Burst = o.rps, 2*o.rps
 
-	// All serve loops exit nil when their socket is closed, so shutdown is
-	// just closing the sockets; the first result decides the exit code.
-	errc := make(chan error, 6)
-	var closers []io.Closer
-
-	if *altIP != "" {
-		d, err := listenDiscovery(*addr, *altIP, uint16(*altPort))
+	if (o.realm != "") != (len(o.users) > 0) {
+		return errors.New("auth needs both -realm and -user")
+	}
+	if o.realm != "" {
+		auth, err := server.NewAuth(o.realm, o.users)
 		if err != nil {
-			slog.Error("nat discovery setup failed", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("bad credentials: %w", err)
 		}
-		go func() { errc <- d.Serve() }()
-		closers = append(closers, d)
-	} else {
-		udpAddr, err := net.ResolveUDPAddr("udp", *addr)
-		if err != nil {
-			slog.Error("bad -addr", "err", err)
-			os.Exit(1)
-		}
-		conn, err := net.ListenUDP("udp", udpAddr)
-		if err != nil {
-			slog.Error("listen failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("listening", "udp", conn.LocalAddr())
-		go func() { errc <- server.Serve(conn) }()
-		closers = append(closers, conn)
+		server.Credentials = auth
+		slog.Info("long-term credential auth enabled", "realm", o.realm, "users", len(o.users))
 	}
 
-	if *tcp {
-		ln, err := net.Listen("tcp", *addr)
-		if err != nil {
-			slog.Error("tcp listen failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("listening", "tcp", ln.Addr())
-		go func() { errc <- server.ServeTCP(ln) }()
-		closers = append(closers, ln)
+	if o.alt.Domain != "" && !o.alt.V4.IsValid() && !o.alt.V6.IsValid() {
+		return errors.New("-redirect-domain needs at least one -redirect target")
+	}
+	if o.alt.V4.IsValid() || o.alt.V6.IsValid() {
+		server.Alternate = &o.alt
+		slog.Info("redirecting via 300 Try Alternate", "v4", o.alt.V4, "v6", o.alt.V6, "domain", o.alt.Domain)
 	}
 
-	if *tlsCert != "" {
-		// The loader re-reads the pair when the files change, so cert
-		// rotation doesn't need a restart; both stacks ask it per handshake.
-		loader, err := newCertLoader(*tlsCert, *tlsKey)
-		if err != nil {
-			slog.Error("bad certificate", "err", err)
-			os.Exit(1)
-		}
-		// STUN over TLS is STUN over TCP inside the stream, so ServeTCP
-		// serves it; MinVersion per RFC 8489 §6.2.3's cipher requirements.
-		ln, err := tls.Listen("tcp", *tlsAddr, &tls.Config{
-			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() },
-			MinVersion:     tls.VersionTLS12,
-		})
-		if err != nil {
-			slog.Error("tls listen failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("listening", "tls", ln.Addr())
-		go func() { errc <- server.ServeTCP(ln) }()
-		closers = append(closers, ln)
-
-		udpAddr, err := net.ResolveUDPAddr("udp", *tlsAddr)
-		if err != nil {
-			slog.Error("bad -tls-addr", "err", err)
-			os.Exit(1)
-		}
-		dln, err := dtls.ListenWithOptions("udp", udpAddr,
-			dtls.WithGetCertificate(func(*dtls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() }))
-		if err != nil {
-			slog.Error("dtls listen failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("listening", "dtls", dln.Addr())
-		go func() { errc <- server.ServeDTLS(dln) }()
-		closers = append(closers, dln)
+	if (o.tlsCert != "") != (o.tlsKey != "") {
+		return errors.New("TLS needs both -tls-cert and -tls-key")
 	}
+	return nil
+}
 
-	if *metricsAddr != "" {
-		ln, err := net.Listen("tcp", *metricsAddr)
+// daemon accumulates the running listeners: errc collects the first serve
+// error, closers are shut in awaitShutdown.
+type daemon struct {
+	errc    chan error
+	closers []io.Closer
+}
+
+// serve registers c for shutdown and runs its serve loop in the background.
+func (d *daemon) serve(c io.Closer, loop func() error) {
+	go func() { d.errc <- loop() }()
+	d.closers = append(d.closers, c)
+}
+
+// startBinding opens the primary UDP socket, or the four NAT-discovery sockets
+// when -alt-ip is set.
+func (d *daemon) startBinding(o *options) error {
+	if o.altIP != "" {
+		disc, err := listenDiscovery(o.addr, o.altIP, uint16(o.altPort))
 		if err != nil {
-			slog.Error("metrics listen failed", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("nat discovery setup: %w", err)
 		}
-		mux := http.NewServeMux()
-		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-			server.WriteMetrics(w)
-		})
-		slog.Info("listening", "metrics", ln.Addr())
-		go func() {
-			if err := http.Serve(ln, mux); !errors.Is(err, net.ErrClosed) {
-				errc <- err
-			}
-		}()
-		closers = append(closers, ln)
+		d.serve(disc, disc.Serve)
+		return nil
 	}
+	udpAddr, err := net.ResolveUDPAddr("udp", o.addr)
+	if err != nil {
+		return fmt.Errorf("bad -addr: %w", err)
+	}
+	conn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	slog.Info("listening", "udp", conn.LocalAddr())
+	d.serve(conn, func() error { return server.Serve(conn) })
+	return nil
+}
 
+func (d *daemon) startTCP(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("tcp listen: %w", err)
+	}
+	slog.Info("listening", "tcp", ln.Addr())
+	d.serve(ln, func() error { return server.ServeTCP(ln) })
+	return nil
+}
+
+// startTLS serves stuns over both TLS (STUN inside the TCP stream) and DTLS.
+func (d *daemon) startTLS(o *options) error {
+	// The loader re-reads the pair when the files change, so cert rotation
+	// doesn't need a restart; both stacks ask it per handshake.
+	loader, err := newCertLoader(o.tlsCert, o.tlsKey)
+	if err != nil {
+		return fmt.Errorf("bad certificate: %w", err)
+	}
+	// STUN over TLS is STUN over TCP inside the stream, so ServeTCP serves it;
+	// MinVersion per RFC 8489 §6.2.3's cipher requirements.
+	ln, err := tls.Listen("tcp", o.tlsAddr, &tls.Config{
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() },
+		MinVersion:     tls.VersionTLS12,
+	})
+	if err != nil {
+		return fmt.Errorf("tls listen: %w", err)
+	}
+	slog.Info("listening", "tls", ln.Addr())
+	d.serve(ln, func() error { return server.ServeTCP(ln) })
+
+	udpAddr, err := net.ResolveUDPAddr("udp", o.tlsAddr)
+	if err != nil {
+		return fmt.Errorf("bad -tls-addr: %w", err)
+	}
+	dln, err := dtls.ListenWithOptions("udp", udpAddr,
+		dtls.WithGetCertificate(func(*dtls.ClientHelloInfo) (*tls.Certificate, error) { return loader.get() }))
+	if err != nil {
+		return fmt.Errorf("dtls listen: %w", err)
+	}
+	slog.Info("listening", "dtls", dln.Addr())
+	d.serve(dln, func() error { return server.ServeDTLS(dln) })
+	return nil
+}
+
+func (d *daemon) startMetrics(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("metrics listen: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		server.WriteMetrics(w)
+	})
+	slog.Info("listening", "metrics", ln.Addr())
+	go func() {
+		if err := http.Serve(ln, mux); !errors.Is(err, net.ErrClosed) {
+			d.errc <- err
+		}
+	}()
+	d.closers = append(d.closers, ln)
+	return nil
+}
+
+// awaitShutdown closes every listener on SIGINT/SIGTERM. Each serve loop then
+// returns nil, unblocking run.
+func (d *daemon) awaitShutdown() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
 		slog.Info("shutting down")
-		for _, c := range closers {
-			c.Close()
+		for _, c := range d.closers {
+			if err := c.Close(); err != nil {
+				slog.Warn("close failed", "err", err)
+			}
 		}
 	}()
-
-	if err := <-errc; err != nil {
-		slog.Error("serve failed", "err", err)
-		os.Exit(1)
-	}
 }
 
 // listenDiscovery parses the discovery flags and opens the four sockets:

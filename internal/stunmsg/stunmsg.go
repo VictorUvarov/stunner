@@ -72,7 +72,9 @@ const (
 )
 
 var (
-	ErrNotSTUN   = errors.New("stunmsg: not a STUN message")
+	// ErrNotSTUN reports input that is not a STUN message.
+	ErrNotSTUN = errors.New("stunmsg: not a STUN message")
+	// ErrMalformed reports a STUN message that is malformed.
 	ErrMalformed = errors.New("stunmsg: malformed message")
 )
 
