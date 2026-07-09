@@ -115,6 +115,9 @@ Docker, systemd, DNS SRV discovery, and monitoring are covered in
 
 #### Documentation
 
+- [docs/](docs/) — **Understanding STUN, one chapter at a time**: a guided
+  tour of the protocol taught through this server's code, from the NAT problem
+  to running it in production. Start here to learn how STUN works.
 - [OVERVIEW.md](OVERVIEW.md) — design, wire-format notes, roadmap, and a
   per-commit progress log
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, run, and test locally
