@@ -8,7 +8,7 @@
 <h4 align="center">A small, fast STUN server written in Go</h4>
 <p align="center">
   <a href="https://datatracker.ietf.org/doc/html/rfc8489"><img src="https://img.shields.io/badge/RFC-8489-brightgreen.svg" alt="RFC 8489"></a>
-  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.26-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.26"></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.25-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.25"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 <br>

@@ -23,6 +23,10 @@ import (
 	"stun/internal/stunclient"
 )
 
+// version is the build version, overridden at release time via
+// -ldflags "-X main.version=...". Defaults to "dev" for local builds.
+var version = "dev"
+
 // Process exit codes.
 const (
 	exitOK       = 0 // success; reflexive address printed
@@ -36,11 +40,16 @@ func main() {
 	user := flag.String("user", "", "username:password for servers that demand auth")
 	software := flag.String("software", "stunc", "SOFTWARE attribute value (empty sends none)")
 	insecure := flag.Bool("insecure", false, "skip certificate verification (tls/dtls; dev servers)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "usage: stunc [flags] host[:port]\n\nflags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(exitOK)
+	}
 	if flag.NArg() != 1 {
 		flag.Usage()
 		os.Exit(exitUsage)
