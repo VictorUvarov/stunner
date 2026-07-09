@@ -109,3 +109,27 @@ just lint   # go vet + gofmt check
 
 Both `bin/` and `dev/` are gitignored — build artifacts and throwaway certs
 never get committed.
+
+## Cutting a release
+
+Releases are driven by [GoReleaser](.goreleaser.yaml) via the
+[Release workflow](.github/workflows/release.yml), which fires on any pushed tag
+matching `v*`. To ship a version, tag the commit you want to release (usually
+the tip of `main`) and push the tag:
+
+```sh
+git checkout main && git pull        # release from the intended commit
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+Pushing the tag builds the cross-arch binaries and container images, creates the
+GitHub Release with an auto-generated changelog, and pushes the image to GHCR.
+
+Tagged the wrong commit before the workflow published anything? Delete the tag
+locally and on the remote, then re-tag:
+
+```sh
+git tag -d v0.1.0
+git push origin :refs/tags/v0.1.0
+```
