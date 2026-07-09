@@ -181,8 +181,9 @@ interop: build
 
 # ── everything ────────────────────────────────────────────────────────────
 
-# Full check: lint, Go tests, and the integration tests (Python + Go e2e).
-check: lint test test-py test-e2e
+# Full check: lint, Go tests (race), and the integration tests (Python + Go e2e).
+# Uses test-race to match CI — a plain `go test` won't surface data races.
+check: lint test-race test-py test-e2e
 
 # Everything in `check` plus third-party (pion) interop.
 check-all: check interop

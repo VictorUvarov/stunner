@@ -138,8 +138,10 @@ func TestAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.Credentials = auth
-	addr := startUDP(t)
+	// Reset only after startUDP's cleanup has stopped the server goroutine —
+	// cleanups run LIFO, so register this one first (it runs last).
 	t.Cleanup(func() { server.Credentials = nil })
+	addr := startUDP(t)
 
 	t.Run("good credentials", func(t *testing.T) {
 		c, err := DialUDP(addr, Config{Username: "alice", Password: "s3cret"})
@@ -184,8 +186,9 @@ func TestAuth(t *testing.T) {
 func TestRedirect(t *testing.T) {
 	target := netip.MustParseAddrPort("192.0.2.7:3478")
 	server.Alternate = &server.AlternateServer{V4: target, Domain: "stun.example.org"}
-	addr := startUDP(t)
+	// Register before startUDP so this reset runs after the server stops (LIFO).
 	t.Cleanup(func() { server.Alternate = nil })
+	addr := startUDP(t)
 
 	c, err := DialUDP(addr, Config{})
 	if err != nil {
