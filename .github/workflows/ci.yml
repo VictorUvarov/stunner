@@ -44,3 +44,17 @@ jobs:
       # stunc against stund over UDP/TCP/TLS/DTLS + the auth handshake
       # (openssl for cert generation ships on the runner).
       - run: just test-e2e
+
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      # Foreign implementation on the wire: pion/stun against our stund.
+      - run: just interop

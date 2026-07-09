@@ -166,7 +166,23 @@ test-e2e: build cert
     bin/stunc -user alice:s3cret {{auth-addr}}
     echo "e2e ok"
 
+# ── Third-party interop ────────────────────────────────────────────────────
+# Validate the wire against an implementation we didn't write — the class of
+# bug a stunc-against-stund e2e can't catch, since both sides share our code.
+
+# Foreign Go client (pion/stun) sends a Binding request to our stund.
+interop: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{bin}} -addr {{addr}} & pid=$!
+    trap 'kill $pid 2>/dev/null || true' EXIT
+    sleep 0.3
+    go -C test/interop/pion run . {{addr}}
+
 # ── everything ────────────────────────────────────────────────────────────
 
 # Full check: lint, Go tests, and the integration tests (Python + Go e2e).
 check: lint test test-py test-e2e
+
+# Everything in `check` plus third-party (pion) interop.
+check-all: check interop

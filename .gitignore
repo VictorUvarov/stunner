@@ -1,6 +1,7 @@
 # build artifacts
 /bin/
 /stund
+/test/interop/pion/stun-interop-pion
 
 # generated dev TLS certs (just cert)
 /dev/
