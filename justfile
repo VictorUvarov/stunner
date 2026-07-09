@@ -88,6 +88,10 @@ lint:
 fmt:
     gofmt -w .
 
+# Apply go fix rewrites to bring code up to date with the current Go toolchain.
+fix:
+    go fix ./...
+
 # ── Python integration tests ──────────────────────────────────────────────
 # Each spins up a fresh stund, runs the client, then tears the server down.
 

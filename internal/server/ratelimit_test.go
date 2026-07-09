@@ -11,7 +11,7 @@ func TestLimiter(t *testing.T) {
 	ip := netip.MustParseAddr("192.0.2.7")
 	now := time.Now()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !l.allow(ip, now) {
 			t.Fatalf("request %d within burst denied", i)
 		}
@@ -54,7 +54,7 @@ func TestServeRateLimits(t *testing.T) {
 
 	client := startServer(t)
 	const sent = 20
-	for i := 0; i < sent; i++ {
+	for range sent {
 		req := newRequest(t)
 		if _, err := client.Write(req.Marshal()); err != nil {
 			t.Fatal(err)

@@ -48,7 +48,7 @@ func TestTCPBinding(t *testing.T) {
 	c := startTCPServer(t)
 
 	// Two requests on the same connection: TCP conns are reusable.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		req := newRequest(t)
 		if _, err := c.Write(req.Marshal()); err != nil {
 			t.Fatal(err)

@@ -55,7 +55,7 @@ func TestTLSBinding(t *testing.T) {
 	t.Cleanup(func() { c.Close() })
 	c.SetDeadline(time.Now().Add(2 * time.Second))
 
-	for i := 0; i < 2; i++ { // stream reuse works through TLS too
+	for range 2 { // stream reuse works through TLS too
 		req := newRequest(t)
 		if _, err := c.Write(req.Marshal()); err != nil {
 			t.Fatal(err)

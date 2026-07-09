@@ -15,8 +15,8 @@ import (
 func startDiscovery(t *testing.T) *Discovery {
 	t.Helper()
 	d := &Discovery{}
-	for i := 0; i < 2; i++ {
-		for j := 0; j < 2; j++ {
+	for i := range 2 {
+		for j := range 2 {
 			conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 			if err != nil {
 				t.Fatal(err)
