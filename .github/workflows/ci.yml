@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # `just lint` shells out to golangci-lint; install both up front.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,golangci-lint
+      - run: just lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      # Unit tests under the race detector — superset of plain `just test`.
+      - run: just test-race
+      # Independent-implementation interop: Python clients on the wire.
+      - run: just test-py
+      # stunc against stund over UDP/TCP/TLS/DTLS + the auth handshake
+      # (openssl for cert generation ships on the runner).
+      - run: just test-e2e
