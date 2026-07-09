@@ -1,16 +1,17 @@
-# stunner
-
-![Stunner Image](./static/stunner.png)
-
-A small, fast STUN server written in Go. One binary.
-
-> **Status: feature-complete.** It covers every MUST and SHOULD in RFC 8489:
-> Binding over UDP, TCP, TLS, and DTLS, long-term credential auth, NAT
-> behavior discovery (RFC 5780), and RFC 3489 "classic STUN" backwards
-> compatibility. See the [progress log](OVERVIEW.md#progress-log) for the
-> full history.
-
-## What is this for?
+<h1 align="center">
+  <br>
+  <img src="./static/stunner.png" alt="stunner">
+  <br>
+  stunner
+  <br>
+</h1>
+<h4 align="center">A small, fast STUN server written in Go</h4>
+<p align="center">
+  <a href="https://datatracker.ietf.org/doc/html/rfc8489"><img src="https://img.shields.io/badge/RFC-8489-brightgreen.svg" alt="RFC 8489"></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.26-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.26"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+<br>
 
 If your app does video calls, voice chat, multiplayer games, or anything else
 peer-to-peer, the catch is that devices behind home routers don't know their
@@ -38,20 +39,15 @@ Reasons to run your own instead of using a public one:
 - **Cost.** STUN is stateless and tiny. The smallest VPS you can rent will
   handle enormous traffic.
 
-## Quick start
+### RFCs
 
-Build it from source and run it. [CONTRIBUTING.md](CONTRIBUTING.md) has the
-one-liner. With no flags it listens on `:3478`, the standard STUN port. Use
-`-addr` to pick a different port and `-v` to turn on debug logging. Stop it
-with Ctrl-C.
+#### Implemented
 
-Then point your WebRTC config (or any STUN client) at `stun:your-host:3478`.
+- [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — Session Traversal Utilities for NAT (STUN)
+- [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) — NAT Behavior Discovery Using STUN
+- [RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489) — Classic STUN, for backwards compatibility
 
-A companion client, `stunc`, ships in the same repo. It prints back the
-address the server saw you as, which is handy for checking a deployment. The
-[flag reference](cmd/stund/README.md) covers everything `stund` accepts.
-
-## Features
+### Features
 
 | Feature | Details | Flags |
 |---|---|---|
@@ -63,7 +59,7 @@ address the server saw you as, which is handy for checking a deployment. The
 | **Prometheus metrics** | Per-transport request/reply/error counters | `-metrics-addr` |
 | **Classic STUN** | RFC 3489 backwards compatibility | on by default |
 
-### How it compares
+#### How it compares
 
 [coturn](https://github.com/coturn/coturn) is the usual open-source choice,
 and the right one if you need TURN media relaying. It's a mature C server that
@@ -73,22 +69,62 @@ defaults. There's almost nothing to configure and nothing to link against.
 Compared to a public server like Google's `stun.l.google.com`, running your
 own buys you the privacy and reliability described above.
 
-## Deployment
+### Using
+
+Build the two binaries, start the server, and ask it for your address:
+
+```sh
+# Build stund (server) and stunc (client) into ./bin
+go build -o bin/stund ./cmd/stund
+go build -o bin/stunc ./cmd/stunc
+
+# Start the server — listens on :3478, the standard STUN port
+./bin/stund
+
+# In another shell, ask what address the server sees
+./bin/stunc 127.0.0.1
+# 127.0.0.1:54321      ← your public IP:port as seen from outside
+```
+
+With no flags `stund` listens on `:3478`. Use `-addr` to pick a different port
+and `-v` to turn on debug logging. Stop it with Ctrl-C. The
+[flag reference](cmd/stund/README.md) covers everything `stund` accepts.
+
+`stunc` speaks every transport the server serves, so it doubles as a
+deployment check — point it at a real host over any protocol:
+
+```sh
+./bin/stunc stun.example.org               # UDP,  port 3478
+./bin/stunc -proto tcp stun.example.org    # TCP,  port 3478
+./bin/stunc -proto tls stun.example.org    # stuns over TLS,  port 5349
+```
+
+To use stunner from an app, point your WebRTC config (or any STUN client) at
+`stun:your-host:3478`:
+
+```js
+new RTCPeerConnection({
+  iceServers: [{ urls: "stun:your-host:3478" }],
+});
+```
+
+#### Deployment
 
 Docker, systemd, DNS SRV discovery, and monitoring are covered in
 [deploy/README.md](deploy/README.md).
 
-## Documentation
+#### Documentation
 
 - [OVERVIEW.md](OVERVIEW.md) — design, wire-format notes, roadmap, and a
   per-commit progress log
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, run, and test locally
 - [deploy/README.md](deploy/README.md) — Docker, systemd, DNS, and monitoring
 - [cmd/stund/README.md](cmd/stund/README.md) — the full `stund` flag reference
-- [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — the STUN spec this
-  implements, and [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) for
-  NAT behavior discovery
 
-## License
+### Contributing
 
-[MIT](LICENSE)
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build, run, and test locally.
+
+### License
+
+MIT License — see [LICENSE](LICENSE).
