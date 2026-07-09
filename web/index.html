@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stunner — WebRTC test</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <main>
+    <h1><span class="stun">Stunner</span> WebRTC test</h1>
+    <p class="lead">
+      Test ICE gathering against a STUN server. If it answers, a
+      <b>server-reflexive</b> candidate appears with your public address.
+    </p>
+
+    <div class="card">
+      <label for="url">STUN server</label>
+      <div class="row">
+        <input type="text" id="url" value="stun:localhost:3478" spellcheck="false" autocapitalize="off">
+        <button id="run">Test</button>
+      </div>
+      <div class="hint">
+        One URL per line for several servers. Examples:
+        <code>stun:localhost:3478</code>,
+        <code>stun:stun.l.google.com:19302</code>.
+        STUN over TLS/DTLS is not reachable from browser ICE, so the
+        <code>stuns:</code> port can't be tested here.
+      </div>
+    </div>
+
+    <div id="verdict"></div>
+
+    <div class="card">
+      <label>ICE candidates</label>
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Protocol</th>
+            <th>Address</th>
+            <th>Port</th>
+          </tr>
+        </thead>
+        <tbody id="cands">
+          <tr>
+            <td class="empty" colspan="4">No candidates yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Log</summary>
+        <div id="log"></div>
+      </details>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

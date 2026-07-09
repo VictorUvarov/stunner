@@ -81,6 +81,18 @@ just test-py-tls       # Binding inside a TLS stream (RFC 8489 §6.2.3)
 
 `just check` runs the lot: lint, Go tests, and the Python clients.
 
+**Browser test page** — checks the server from a real WebRTC stack:
+
+```sh
+just web    # runs stund + an nginx serving web/, then opens localhost:8080
+```
+
+Click Test: the page gathers ICE candidates against `stun:localhost:3478`, and a
+server-reflexive (`srflx`) candidate — your public address as the server sees it
+— means `stund` answered. Browser ICE only speaks plain STUN, so this covers the
+UDP/TCP binding path; use `stunc -proto tls` for the `stuns` transports. Needs
+Docker; Ctrl-C tears both containers down.
+
 ## Before you commit
 
 ```sh

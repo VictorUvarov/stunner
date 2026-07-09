@@ -1,0 +1,22 @@
+# Local WebRTC test rig: the STUN server plus a static host for the test page.
+# Start from the repo root with `just web` (or `docker compose -f deploy/compose.yaml
+# up --build`), then open http://localhost:8080/ and click Test. A server-reflexive
+# candidate means stund answered.
+services:
+  stund:
+    build:
+      # Paths are relative to this file; context is the repo root one level up.
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["-addr", ":3478", "-v"]
+    ports:
+      # Published to the host so the browser can reach stun:localhost:3478.
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ../web:/usr/share/nginx/html:ro

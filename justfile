@@ -32,6 +32,22 @@ prod *args: build
 dev *args: build
     {{bin}} -addr {{addr}} -v {{args}}
 
+# Serve the browser WebRTC test page and run stund alongside it (Docker Compose).
+# Opens http://localhost:8080/ in your browser; click Test. Ctrl-C tears it down.
+web:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    compose="docker compose -f deploy/compose.yaml"
+    trap '$compose down' EXIT
+    $compose up --build -d
+    # Wait for nginx to answer, then open the page.
+    for _ in $(seq 1 30); do
+        curl -sf -o /dev/null http://localhost:8080/ && break || sleep 0.5
+    done
+    (open http://localhost:8080/ || xdg-open http://localhost:8080/) 2>/dev/null || \
+        echo "open http://localhost:8080/ in your browser"
+    $compose logs -f
+
 # Run with long-term credential auth (RFC 8489 §9.2): alice:s3cret @ example.org.
 auth *args: build
     {{bin}} -addr {{auth-addr}} -realm example.org -user alice:s3cret -v {{args}}
