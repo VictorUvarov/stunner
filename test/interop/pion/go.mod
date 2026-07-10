@@ -1,6 +1,6 @@
 module stun-interop-pion
 
-go 1.25.0
+go 1.25.12
 
 require github.com/pion/stun/v3 v3.1.6
 
