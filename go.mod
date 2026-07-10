@@ -1,6 +1,6 @@
 module stun
 
-go 1.25.0
+go 1.25.12
 
 require (
 	github.com/pion/dtls/v3 v3.1.5
