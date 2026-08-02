@@ -11,7 +11,7 @@ attributes are where the variety lives.
 
 In this codebase, one package owns this format and nothing else:
 [`internal/stunmsg`](../internal/stunmsg/). It turns raw bytes into a Go
-`Message` and back. No sockets, no state — bytes in, `Message` out. Keeping it
+`Message` and back. No sockets, no state: bytes in, `Message` out. Keeping it
 that pure is what makes it easy to test against the official examples, which
 we'll get to at the end.
 
@@ -51,13 +51,13 @@ The magic cookie earns a second look. Why bake a constant into every message?
 Because STUN often shares a UDP port with other protocols, and a receiver needs
 a fast way to guess "is this even STUN?" before spending effort parsing it. The
 cookie is that guess. (There's a wrinkle here for the 2003 version of the
-protocol, which predates the cookie — chapter 7 covers it. For now, assume the
+protocol, which predates the cookie (chapter 7 covers it). For now, assume the
 cookie is always present.)
 
 ## Attributes: the payload
 
-After the header come the attributes. An attribute is a **TLV** — Type,
-Length, Value — which is a fancy way of saying "a labeled box." Think of them
+After the header come the attributes. An attribute is a **TLV** (Type,
+Length, Value), which is a fancy way of saying "a labeled box." Think of them
 as an extremely compact binary version of HTTP headers: a small type number
 says what this is, a length says how big the value is, and then the value
 itself.
@@ -83,26 +83,25 @@ right:
 - **Values are padded to 4-byte boundaries.** If a value is 5 bytes long, it's
   followed by 3 bytes of padding so the next attribute starts on a clean
   boundary. But the length field records the *real* length (5), not the padded
-  length (8). And the padding bytes can be anything — you must skip them, not
+  length (8). And the padding bytes can be anything. You must skip them, not
   check them. (The official test messages deliberately pad with space
   characters to catch parsers that wrongly expect zeros.)
 - **The message length counts padded attributes.** The header's length field
   includes all that padding, even though each attribute's own length field
   doesn't.
 
-This codebase keeps attributes as a raw list — type plus value bytes — and adds
+This codebase keeps attributes as a raw list (type plus value bytes) and adds
 typed accessors only for the handful of attributes the server actually reads or
 writes. There's no attempt to model all 30-odd defined attributes as Go
 structs. Most of them this server never touches, so they stay as opaque bytes.
 
 ## Why the address is scrambled: XOR-MAPPED-ADDRESS
 
-Here's the protocol's cleverest little trick. When the server reports your
-address, it doesn't write it plainly. It writes it **XORed** with the magic
+When the server reports your address, it doesn't write it plainly. It writes it **XORed** with the magic
 cookie. (For IPv6, it XORs with the cookie followed by the transaction ID.)
 The attribute is literally named for this: *XOR*-MAPPED-ADDRESS.
 
-Why bother? Not for secrecy — XOR against a known constant hides nothing from
+Why bother? Not for secrecy. XOR against a known constant hides nothing from
 anyone who wants to look. The reason is stranger and more practical. Some older
 NAT routers were "helpful": they scanned every packet passing through for
 anything that looked like their own IP address, and rewrote it, assuming it
@@ -144,7 +143,7 @@ checksums. If the parser drifts from the spec, a published example breaks.
 
 Second, the codec is **fuzzed**. Two fuzz targets throw arbitrary and
 arbitrary-but-valid bytes at the parser and the builder, checking that anything
-accepted survives a round trip — parse, re-serialize, re-parse — with its
+accepted survives a round trip (parse, re-serialize, re-parse) with its
 meaning intact, and that a wrong key never validates. Roughly 50 million
 executions ran clean before this landed.
 
@@ -153,7 +152,7 @@ executions ran clean before this landed.
 You can now read any STUN packet: a header telling you the type and giving you
 a transaction ID to match on, followed by labeled attributes, one of which
 carries the answer. The next chapter puts the format to work. We'll follow a
-single Binding Request into the server and watch it build the response — and
+single Binding Request into the server and watch it build the response, and
 meet the rule that governs everything the server does with input it doesn't
 like.
 
