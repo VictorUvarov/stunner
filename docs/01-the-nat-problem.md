@@ -1,7 +1,7 @@
 # Chapter 1: The NAT problem
 
 Ask your computer what its IP address is and it will tell you something like
-`192.168.1.42`. That address is a lie — or rather, it's a local truth. It's the
+`192.168.1.42`. That address is a lie, or rather, it's a local truth. It's the
 address your home router handed out on your private network. To the rest of the
 internet, you don't have that address at all. You share one public address with
 every other device in the house, and your router juggles them behind it. This
@@ -16,7 +16,7 @@ address, because you started the conversation.
 ## The trouble starts when two devices want to talk directly
 
 Now imagine a video call. For the audio and video to flow without bouncing
-through a middleman server — which costs money and adds delay — the two devices
+through a middleman server (which costs money and adds delay), the two devices
 want to send packets straight to each other. But neither one knows its own
 public address. Each sees only its private `192.168.x.x` address, which is
 useless to the other side. It's like trying to give someone directions to your
@@ -31,7 +31,7 @@ packet you sent and report back the address it appears to come from.
 
 The idea is almost too simple. Your device sends a small packet to a STUN
 server and asks, in effect, "what address did this arrive from?" On the way
-out, your router rewrites the packet's source address to the public one — that's
+out, your router rewrites the packet's source address to the public one. That's
 just NAT doing its normal job. The STUN server sees the rewritten address,
 copies it into a reply, and sends it back. Now your device knows how the
 outside world sees it.
@@ -50,7 +50,7 @@ sequenceDiagram
 ```
 
 That single answer is usually enough. Once each side knows its own public
-address, they can trade those addresses (through a signaling channel — a
+address, they can trade those addresses (through a signaling channel, a
 chat server, say) and start sending packets directly. This is the foundation
 under WebRTC video calls, voice chat, and peer-to-peer multiplayer games.
 
@@ -59,13 +59,13 @@ under WebRTC video calls, voice chat, and peer-to-peer multiplayer games.
 STUN tells you your address. That's the whole job. It does **not** relay your
 traffic, hold your call open, or remember anything about you between packets.
 There's a sister protocol, TURN, that *does* relay traffic for the hard cases
-where a direct connection is impossible — but that's a different protocol with
+where a direct connection is impossible. But that's a different protocol with
 a different cost profile, and this server deliberately doesn't do it. STUN is
 the cheap, stateless first thing you try.
 
-"Stateless" is worth pausing on, because it shapes everything that follows. The
+Statelessness matters here, because it shapes everything that follows. The
 server keeps no memory of you. Every request is answered entirely from the
-packet in front of it — the return address is right there on the envelope. This
+packet in front of it: the return address is right there on the envelope. This
 is why a STUN server on the smallest VPS you can rent will shrug off enormous
 traffic: there's no per-user state to store, no session to track, nothing to
 run out of.
@@ -86,7 +86,7 @@ the reasons this project exists:
 
 The rest of this tutorial takes that one simple exchange apart. The next
 chapter looks at exactly what those "what's my address?" packets contain, down
-to the byte — because before you can understand how the server answers, you
+to the byte, because before you can understand how the server answers, you
 need to understand the language it answers in.
 
 ---

@@ -2,7 +2,7 @@
 
 Knowing your public address is enough to *attempt* a direct connection. It
 isn't enough to know whether that attempt will *work*. That depends on how your
-NAT behaves — and NATs behave in maddeningly different ways. Some give you the
+NAT behaves, and NATs behave in maddeningly different ways. Some give you the
 same public port no matter who you talk to; others hand out a fresh port for
 every destination. Some let a stranger's packet reach you if you've talked to
 anyone on that port; others slam the door unless you've talked to that exact
@@ -12,7 +12,7 @@ These behaviors decide whether two peers can connect directly or need to fall
 back to a relay. [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780)
 extends STUN to *measure* them, and this server implements it in
 [`internal/server/discovery.go`](../internal/server/discovery.go). It's an
-optional mode — off unless you turn it on — because, as you'll see, it needs
+optional mode (off unless you turn it on) because, as you'll see, it needs
 something a basic server doesn't: two public IP addresses.
 
 ## The trick: reply from somewhere else
@@ -23,8 +23,8 @@ reply from a brand-new IP:port reaches the client, the client's NAT must be
 permissive; if it's dropped, the NAT is strict. The pattern of what gets
 through tells the client exactly how its NAT filters and maps.
 
-This is the one place the chapter-3 rule — "always reply from the socket you
-received on" — is deliberately broken. And it's not really an exception,
+This is the one place the chapter-3 rule ("always reply from the socket you
+received on") is deliberately broken. And it's not really an exception,
 because the client *asks* for the reply to come from elsewhere. That's the
 whole point of the measurement.
 
@@ -42,7 +42,7 @@ crossed with two ports.
 
 That's why discovery needs two public IPs on the machine. With four sockets,
 the server can answer from the same IP and port the request came in on, or the
-same IP different port, or different IP same port, or different IP and port —
+same IP different port, or different IP same port, or different IP and port:
 the four combinations a client needs to map out its NAT. You start it like
 this:
 
@@ -61,7 +61,7 @@ The server reports:
 
 - **RESPONSE-ORIGIN** — "this reply came from *this* address." Lets the client
   confirm which socket answered.
-- **OTHER-ADDRESS** — "here's the other IP:port you could probe" — the
+- **OTHER-ADDRESS** — "here's the other IP:port you could probe," the
   diagonal socket, the one differing in both IP and port. This is the client's
   map to the rest of the grid.
 
@@ -109,7 +109,7 @@ second IP claims the capability.
 
 You've now seen every *answer* the server can give: a plain address, an
 authenticated address, and a full NAT-behavior probe. The next chapter covers
-the two ways the server can decline to answer in the normal way — sending the
+the two ways the server can decline to answer in the normal way: sending the
 client to a different server, and speaking to clients that predate the modern
 protocol entirely.
 

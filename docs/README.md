@@ -1,7 +1,7 @@
 # Understanding STUN, one chapter at a time
 
-This is a guided tour of STUN — the protocol that lets a device behind a home
-router discover its own public address — taught through the code that
+This is a guided tour of STUN (the protocol that lets a device behind a home
+router discover its own public address) taught through the code that
 implements it. By the end you'll know what every byte on the wire means, why
 the protocol makes the choices it does, and where each choice lives in this
 codebase.
@@ -18,7 +18,7 @@ running in production," and the concepts stack: the wire format explains the
 Binding exchange, the Binding exchange explains the transports, and so on.
 
 Every chapter ends with a **Read the code** box pointing at the files that
-implement what you just learned. Open them alongside the prose — the whole
+implement what you just learned. Open them alongside the prose: the whole
 point of learning a protocol from a real server is that you can see the spec
 turn into running code.
 
@@ -62,5 +62,5 @@ with NAT behavior discovery in
 [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) and the original
 "classic" version in [RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489).
 This tutorial links the exact section whenever the code follows a specific
-rule. You never have to read the RFCs to follow along — but when you want the
+rule. You never have to read the RFCs to follow along, but when you want the
 authoritative word, the pointer is right there.

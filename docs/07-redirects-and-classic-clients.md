@@ -4,7 +4,7 @@ This chapter covers two features that don't fit the "answer the question"
 mold. The first is the server telling a client *go ask someone else*. The
 second is the server answering clients that speak a version of STUN from 2003,
 before half the format in chapter 2 existed. They're grouped together because
-both are edge behaviors you can ignore until you need them — and both are
+both are edge behaviors you can ignore until you need them, and both are
 opt-in or automatic, never in the way of the common case.
 
 ## Redirects: ALTERNATE-SERVER
@@ -28,7 +28,7 @@ server.Alternate = &server.AlternateServer{
 Three details make it correct rather than merely functional:
 
 - **Per address family.** The RFC requires the alternate to match the client's
-  IP family — you can't send an IPv6 client to an IPv4 address. So targets are
+  IP family. You can't send an IPv6 client to an IPv4 address. So targets are
   configured per family, and a request from a family with no configured target
   is served normally instead of redirected. (There's also a §10 SHOULD, easy to
   miss, that a redirect list the *other* family's alternate after the mandatory
@@ -42,7 +42,7 @@ Three details make it correct rather than merely functional:
   to a different server would break the measurement. Discovery ignores the
   redirect setting entirely.
 
-On the client side, following a redirect is a decision, not a reflex — because
+On the client side, following a redirect is a decision, not a reflex, because
 over TLS or DTLS the ALTERNATE-DOMAIN has to be validated against the new
 server's certificate before you trust it. Chapter 8 shows how the client
 surfaces that choice to its caller.
@@ -50,18 +50,18 @@ surfaces that choice to its caller.
 ## Classic clients: RFC 3489 backwards compatibility
 
 Now the time machine. STUN was first defined in 2003 by
-[RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489) — "classic STUN."
+[RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489), "classic STUN."
 That version had **no magic cookie**. The four bytes that chapter 2 called the
 magic cookie were, back then, just the first four bytes of a 128-bit
 transaction ID. The cookie was carved out of the transaction ID later, in RFC
 5389.
 
 This creates a neat detection rule. A Binding Request *without* the magic
-cookie in those four bytes isn't garbage — it's a classic client
+cookie in those four bytes is a classic client, not garbage
 ([RFC 5389 §12.2](https://datatracker.ietf.org/doc/html/rfc5389#section-12.2)).
 And [RFC 8489 §12](https://datatracker.ietf.org/doc/html/rfc8489#section-12)
 says a standalone server SHOULD still answer them. This server does, though it
-was a deliberate call — the design log shows the feature was first declined,
+was a deliberate call: the design log shows the feature was first declined,
 then added at the operator's request, because true cookie-less clients are
 nearly extinct.
 
@@ -87,7 +87,7 @@ attribute padding:
 - **Auth-enabled servers give a classic client a bare 401**, since REALM and
   NONCE are meaningless to a parser that must reject them.
 - **Discovery uses the era-correct names.** Classic NAT-type detection (RFC
-  3489 §10.1) wants SOURCE-ADDRESS and CHANGED-ADDRESS — the attributes RFC
+  3489 §10.1) wants SOURCE-ADDRESS and CHANGED-ADDRESS: the attributes RFC
   5780 renamed to RESPONSE-ORIGIN and OTHER-ADDRESS. Classic clients get the
   old names, so CHANGE-REQUEST probing works for them too.
 
@@ -99,7 +99,7 @@ lists) live in the codec, switched on by that same field.
 
 There's one real cost, straight from the spec, and it's worth understanding.
 Once the parser accepts cookie-less messages, the magic cookie can no longer
-screen out non-STUN traffic — which is exactly why RFC 5389 forbids combining
+screen out non-STUN traffic, which is exactly why RFC 5389 forbids combining
 3489 compatibility with multiplexing STUN alongside another protocol on a
 shared port. A standalone STUN server doesn't multiplex, so it can pay this
 cost. A server sharing a port couldn't.
@@ -108,7 +108,7 @@ cost. A server sharing a port couldn't.
 
 That completes the server: every question it answers, every way it declines,
 and every client generation it speaks to. The next chapter switches sides. We
-look at the *client* — the code that asks the question — where the interesting
+look at the *client* (the code that asks the question) where the interesting
 problems are the ones the server never has to face: what to do when your packet
 gets lost, and how to run the authentication dance from chapter 5 in reverse.
 

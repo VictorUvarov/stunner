@@ -2,7 +2,7 @@
 
 Every chapter so far has stood behind the server, watching requests arrive.
 Now cross to the other side of the wire. The client is the code that *asks*
-"what's my address?" — and it faces a set of problems the server never does,
+"what's my address?", and it faces a set of problems the server never does,
 because the client is the one dealing with an unreliable network and an
 unpredictable answer.
 
@@ -15,7 +15,7 @@ whole stack.
 
 ## Problem one: your packet might vanish
 
-The server's world is simple — a request arrives, it answers. The client's
+The server's world is simple: a request arrives, it answers. The client's
 world is not, because on UDP there's no guarantee the request ever arrived, or
 that the answer ever came back. Either can silently disappear.
 
@@ -25,11 +25,11 @@ schedule from
 send the request, wait one **RTO** (retransmission timeout, 500ms to start),
 and if no answer comes, send it again and *double* the wait. Keep doubling up
 to **Rc** attempts (7), then wait one final stretch (**Rm** × RTO) before
-giving up with `ErrTimeout`. The doubling — exponential backoff — means a brief
-blip costs one quick retry, while a truly dead server doesn't get hammered.
+giving up with `ErrTimeout`. The doubling (exponential backoff) means a brief
+blip costs one quick retry, while a dead server doesn't get hammered.
 All three knobs (RTO, Rc, Rm) are configurable.
 
-Stream transports (TCP, TLS) don't retransmit — the stream handles delivery —
+Stream transports (TCP, TLS) don't retransmit (the stream handles delivery),
 so instead they take the schedule's *total* duration and use it as one overall
 deadline. Same time budget, different mechanism.
 
@@ -38,8 +38,8 @@ deadline. Same time budget, different mechanism.
 If the client has fired off several requests, or if a stray packet wanders in,
 how does it know which datagram is the answer to which question? The
 transaction ID from chapter 2. The client generates a random 96-bit ID per
-request and matches responses against it. Anything that doesn't match — a stray
-datagram, unparseable bytes, a response with a broken FINGERPRINT — is ignored,
+request and matches responses against it. Anything that doesn't match (a stray
+datagram, unparseable bytes, a response with a broken FINGERPRINT) is ignored,
 exactly as a well-behaved client must. The retransmission loop keeps waiting
 for the *right* answer rather than being fooled by noise.
 
@@ -52,7 +52,7 @@ client, §9.2.4 for the server). Given a username and password, the client:
 
 1. Sends its first request, gets a 401.
 2. Reads the REALM, NONCE, and PASSWORD-ALGORITHMS out of the challenge.
-3. Prepares its credentials with OpaqueString (chapter 5 — both sides must
+3. Prepares its credentials with OpaqueString (chapter 5, both sides must
    normalize identically or the HMAC won't match), picks an algorithm
    (SHA-256 preferred), and retries with a MESSAGE-INTEGRITY HMAC.
 
@@ -61,7 +61,7 @@ Two details carry over from chapter 5, seen now from the client's side:
 - **Bid-down protection, enforced by the client.** The client only *engages*
   the negotiated PASSWORD-ALGORITHMS list when the nonce cookie's
   security-feature bit vouches for it. If those bits don't confirm the server
-  really offered the list, the client refuses to trust the negotiation — which
+  really offered the list, the client refuses to trust the negotiation, which
   is what stops the downgrade attack from working. The defense needs both ends
   to check, and this is the client's half.
 - **Verify the answer, not just send the question.** When the signed response
@@ -69,7 +69,7 @@ Two details carry over from chapter 5, seen now from the client's side:
   address inside. A correct answer from an attacker is still an attacker's
   answer.
 
-A stale-nonce 438 costs one silent retry with the fresh nonce — the caller
+A stale-nonce 438 costs one silent retry with the fresh nonce: the caller
 never sees it. That mirrors the server's willingness to hand out a new nonce
 once the credentials otherwise check out.
 
@@ -100,7 +100,7 @@ defer c.Close()
 mapped, err := c.Binding() // your address as the server saw it
 ```
 
-A `Client` owns its connection and runs one transaction at a time — it's not
+A `Client` owns its connection and runs one transaction at a time: it's not
 built for concurrent use. If you want parallelism, use several clients. That
 keeps the retransmission and transaction-matching logic simple: one question,
 one answer, at a time.

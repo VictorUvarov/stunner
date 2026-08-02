@@ -9,7 +9,7 @@ understand STUN.
 The code lives in [`internal/server/server.go`](../internal/server/server.go),
 and the shape of it is deliberately thin: read a datagram, parse it, decide
 what to do, send a reply. Let's walk a good request through it, then spend the
-rest of the chapter on the more interesting question — what the server does
+rest of the chapter on the more interesting question: what the server does
 with everything that *isn't* a good request.
 
 ## The happy path
@@ -31,14 +31,14 @@ for an answer from the exact IP and port it sent to. Its router only opened a
 return path for *that* conversation. If the server replied from a different
 address or port, the router would drop the reply as unsolicited, and the client
 would hear nothing. So "reply from the socket you received on, to the sender you
-received from" isn't a nicety — it's the only thing that works. (Chapter 6,
+received from" isn't a nicety. It's the only thing that works. (Chapter 6,
 where the server deliberately replies from a *different* address, is the
 exception that proves the rule: that's a feature the client explicitly asks
 for.)
 
 Notice what the server didn't do: it didn't store anything. The address it
 reported came straight off the incoming packet. When a retransmitted copy of
-the same request arrives — which happens constantly on UDP — the server just
+the same request arrives (which happens constantly on UDP), the server just
 recomputes the same answer from scratch. There's no transaction table to look
 up, because there's nothing to remember. The spec explicitly blesses this
 "stateless recompute" approach for Binding, and it's why the server scales the
@@ -52,14 +52,14 @@ a method the server doesn't support?
 
 For most of these, the answer is: **nothing.** No reply. The packet is dropped
 and the server moves on. This is [RFC 8489 §6.3](https://datatracker.ietf.org/doc/html/rfc8489#section-6.3),
-and it's not laziness — it's a security property.
+and it's a security property, not laziness.
 
 Think about what a STUN server is: a machine on the public internet that sends
 a reply to whatever address a request claims to come from. On UDP, that source
 address is trivial to forge. If the server answered every packet, an attacker
 could send a flood of requests with a *victim's* address forged as the source,
 and the server would dutifully bombard the victim with replies. The server
-would become a **reflector** — a tool for pointing traffic at someone else, and
+would become a **reflector**: a tool for pointing traffic at someone else, and
 often an *amplifier*, since a small request can draw a larger response.
 
 Staying silent on anything questionable shrinks that risk. The server only ever
@@ -74,7 +74,7 @@ Here's the full table of what draws silence versus a reply:
 |---|---|
 | Valid Binding Request | Success response with XOR-MAPPED-ADDRESS |
 | Binding Request with an attribute it must understand but doesn't | Error 420, listing the offending attributes |
-| Binding Indication (a keepalive) | Silence — indications never get a reply |
+| Binding Indication (a keepalive) | Silence: indications never get a reply |
 | Random non-STUN bytes | Silence |
 | Corrupt framing, or a bad FINGERPRINT | Silence |
 | A source IP over its rate budget | Silence (chapter 9) |
@@ -85,7 +85,7 @@ There's a single exception to "drop bad input silently," and it exists to be
 *helpful* rather than to answer a question. STUN attributes come in two
 flavors: **comprehension-required** and **comprehension-optional**. If a
 request carries a comprehension-required attribute the server doesn't
-understand, the server can't just proceed as if it weren't there — the client
+understand, the server can't just proceed as if it weren't there. The client
 clearly wanted something specific. So it replies with error **420 (Unknown
 Attribute)**, listing exactly which attributes it didn't understand. Now the
 client knows why it didn't get what it asked for, instead of guessing.
@@ -93,8 +93,8 @@ client knows why it didn't get what it asked for, instead of guessing.
 This is different from silence because a 420 is a legitimate answer to a
 legitimate, well-formed request. The client sent valid STUN; it just asked for
 a feature this server doesn't have. Telling it so is useful. (Comprehension-
-*optional* attributes it doesn't recognize, by contrast, it simply ignores —
-that's what "optional" means.)
+*optional* attributes it doesn't recognize, by contrast, it simply ignores,
+since that's what "optional" means.)
 
 A couple of auth-related attributes, USERNAME and MESSAGE-INTEGRITY, are
 whitelisted as ignorable even though a naive reading might 420 them. A plain
