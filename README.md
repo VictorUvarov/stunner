@@ -46,6 +46,8 @@ Reasons to run your own instead of using a public one:
 - [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — Session Traversal Utilities for NAT (STUN)
 - [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) — NAT Behavior Discovery Using STUN
 - [RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489) — Classic STUN, for backwards compatibility
+- [RFC 7350](https://datatracker.ietf.org/doc/html/rfc7350) — DTLS as Transport for STUN
+- [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) — Test Vectors for STUN, used in the test suite
 
 ### Features
 
