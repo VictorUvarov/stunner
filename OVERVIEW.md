@@ -86,6 +86,8 @@ different threat model, not part of STUN itself.
 - [RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489) — STUN (current spec, obsoletes 5389)
 - [RFC 5769](https://datatracker.ietf.org/doc/html/rfc5769) — test vectors for STUN messages
 - [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) — NAT behavior discovery using STUN
+- [RFC 7350](https://datatracker.ietf.org/doc/html/rfc7350) — DTLS as transport for STUN
+- [RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489) — classic STUN, backwards compatibility
 
 ## Progress log
 
