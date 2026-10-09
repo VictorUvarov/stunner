@@ -29,9 +29,9 @@ giving up with `ErrTimeout`. The doubling (exponential backoff) means a brief
 blip costs one quick retry, while a dead server doesn't get hammered.
 All three knobs (RTO, Rc, Rm) are configurable.
 
-Stream transports (TCP, TLS) don't retransmit (the stream handles delivery),
-so instead they take the schedule's *total* duration and use it as one overall
-deadline. Same time budget, different mechanism.
+Stream transports (TCP, TLS) don't retransmit, since the stream handles
+delivery. They take the schedule's *total* duration and use it as one overall
+deadline instead.
 
 ## Problem two: which answer is mine?
 
@@ -40,8 +40,8 @@ how does it know which datagram is the answer to which question? The
 transaction ID from chapter 2. The client generates a random 96-bit ID per
 request and matches responses against it. Anything that doesn't match (a stray
 datagram, unparseable bytes, a response with a broken FINGERPRINT) is ignored,
-exactly as a well-behaved client must. The retransmission loop keeps waiting
-for the *right* answer rather than being fooled by noise.
+exactly as a well-behaved client must, and the retransmission loop keeps
+waiting for the matching answer.
 
 ## Problem three: authenticating, in reverse
 
@@ -52,22 +52,22 @@ client, §9.2.4 for the server). Given a username and password, the client:
 
 1. Sends its first request, gets a 401.
 2. Reads the REALM, NONCE, and PASSWORD-ALGORITHMS out of the challenge.
-3. Prepares its credentials with OpaqueString (chapter 5, both sides must
+3. Prepares its credentials with OpaqueString (chapter 5; both sides must
    normalize identically or the HMAC won't match), picks an algorithm
    (SHA-256 preferred), and retries with a MESSAGE-INTEGRITY HMAC.
 
 Two details carry over from chapter 5, seen now from the client's side:
 
-- **Bid-down protection, enforced by the client.** The client only *engages*
-  the negotiated PASSWORD-ALGORITHMS list when the nonce cookie's
-  security-feature bit vouches for it. If those bits don't confirm the server
-  really offered the list, the client refuses to trust the negotiation, which
-  is what stops the downgrade attack from working. The defense needs both ends
-  to check, and this is the client's half.
-- **Verify the answer, not just send the question.** When the signed response
-  comes back, the client verifies *its* MESSAGE-INTEGRITY before trusting the
-  address inside. A correct answer from an attacker is still an attacker's
-  answer.
+- The client enforces bid-down protection. It only *engages* the negotiated
+  PASSWORD-ALGORITHMS list when the nonce cookie's security-feature bit
+  vouches for it. If those bits don't confirm the server really offered the
+  list, the client refuses to trust the negotiation, which is what stops the
+  downgrade attack from working. The defense needs both ends to check, and
+  this is the client's half.
+- The client verifies the answer. When the signed response comes back, it
+  checks *its* MESSAGE-INTEGRITY before trusting the address inside, so a
+  response forged by an attacker is rejected even if the address in it
+  happens to be right.
 
 A stale-nonce 438 costs one silent retry with the fresh nonce: the caller
 never sees it. That mirrors the server's willingness to hand out a new nonce
@@ -77,10 +77,9 @@ once the credentials otherwise check out.
 
 When the server answers 300 Try Alternate (chapter 7), the client surfaces it
 as a typed `Redirect` error carrying the ALTERNATE-SERVER and ALTERNATE-DOMAIN.
-It does **not** automatically follow it. That's deliberate: over TLS or DTLS,
-the domain must be validated against the alternate server's certificate before
-you trust the handoff, and only the caller knows its security requirements. So
-the library hands the decision up rather than chasing the redirect blindly.
+It doesn't follow it automatically: over TLS or DTLS, the domain must be
+validated against the alternate server's certificate before you trust the
+handoff, and only the caller knows its security requirements.
 
 ## The shape of the API
 
@@ -102,8 +101,7 @@ mapped, err := c.Binding() // your address as the server saw it
 
 A `Client` owns its connection and runs one transaction at a time: it's not
 built for concurrent use. If you want parallelism, use several clients. That
-keeps the retransmission and transaction-matching logic simple: one question,
-one answer, at a time.
+keeps the retransmission and transaction-matching logic simple.
 
 ## Where this is going
 
@@ -116,12 +114,12 @@ restart, and gets packaged up so you can actually deploy it.
 
 **Read the code**
 
-- [`internal/stunclient/client.go`](../internal/stunclient/client.go) — the
+- [`internal/stunclient/client.go`](../internal/stunclient/client.go): the
   whole client: retransmission, transaction matching, the auth flow, and the
   redirect error.
-- [`cmd/stunc/main.go`](../cmd/stunc/main.go) — flags wired to a transport;
+- [`cmd/stunc/main.go`](../cmd/stunc/main.go): flags wired to a transport;
   the thin binary over the library.
-- [`internal/stunclient/README.md`](../internal/stunclient/README.md) — the API
+- [`internal/stunclient/README.md`](../internal/stunclient/README.md): the API
   as reference.
 
 ---
