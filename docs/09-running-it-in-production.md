@@ -3,9 +3,8 @@
 A protocol that's correct on the wire is only half of a server you'd actually
 run. The other half is everything around the exchange: surviving abuse,
 telling you what it's doing, keeping its certificates fresh, and shipping in a
-form you can deploy. This chapter is that half. None of it changes the
-protocol: it's the operational shell around the core you've spent eight
-chapters learning.
+form you can deploy. None of it changes the protocol; it's the operational
+shell around the core you've spent eight chapters learning.
 
 ## Rate limiting: not answering too much
 
@@ -21,10 +20,9 @@ earns tokens at a steady rate (default 10 per second) up to a burst ceiling
 without a reply**, because a reply would spend the very bandwidth the limit is
 there to protect. The `-rps` flag tunes the rate, and `0` disables it.
 
-Two design choices are worth noting. First, over-budget packets get silence,
-not a 486 or any error, consistent with the reflection logic, since an error
-reply is still a reply an attacker could aim at a victim. Second, the
-bookkeeping is intentionally one mutex and one map: buckets that idle long
+Over-budget packets get no 486 or any other error, because an error reply is
+still a reply an attacker could aim at a victim. The bookkeeping is
+intentionally one mutex and one map: buckets that idle long
 enough to have fully refilled are pruned, at most once a minute, under the same
 lock. It's simple on purpose; the comment in the code says to shard it only if
 it ever shows up in a profile.
@@ -35,12 +33,10 @@ Chapter 3 promised this would be easy, and statelessness is why. There's no
 `Stop` method and no shutdown sequence, because there's no in-flight state to
 flush. The `stund` binary installs a SIGINT/SIGTERM handler that simply
 **closes the sockets**. Closing a socket makes its blocked read return, which
-ends the serve loop, which returns cleanly. Ctrl-C exits 0. A server that
-remembers nothing has nothing to lose on the way down.
+ends the serve loop, which returns cleanly. Ctrl-C exits 0.
 
 ## Metrics: knowing what it's doing
 
-A production server you can't observe is a production server you don't trust.
 Passing `-metrics-addr` (say `127.0.0.1:9478`) turns on an HTTP endpoint
 serving per-transport counters in Prometheus text format on `/metrics`
 ([`internal/server/metrics.go`](../internal/server/metrics.go)). The counters
@@ -64,17 +60,16 @@ This one doesn't restart.
 `-tls-cert` and `-tls-key` feed a `certLoader`
 ([`cmd/stund/reload.go`](../cmd/stund/reload.go)) that both Go's TLS stack and
 pion's DTLS consult *per handshake*. It re-stats the files at most once a
-second, reloads when it sees a newer modification time, and, importantly,
-**keeps the last good pair if a rotation writes garbage.** A broken
-renewal gets logged; it doesn't kill the listener. So whether you renew with
-certbot, `acme.sh`, or anything else that writes a new pair to disk, the new
-certificate is picked up on the next handshake with no restart, no signal, and
-no downtime. The loader's behavior (rotation, throttle, broken-reload
+second, reloads when it sees a newer modification time, and keeps the last
+good pair if a rotation writes garbage. A broken renewal gets logged without
+killing the listener. Whether you renew with certbot, `acme.sh`, or anything
+else that writes a new pair to disk, the new certificate is picked up on the
+next handshake without a restart or a signal. The loader's behavior (rotation, throttle, broken-reload
 fallback, bad startup) is pinned by unit tests.
 
 ## Shipping it
 
-A binary nobody can install isn't deployed. There are three ways to run
+There are three ways to run
 `stund`, under [`deploy/`](../deploy/):
 
 - **Docker.** A multi-stage build compiles a static binary into a `scratch`
@@ -132,21 +127,20 @@ and in another terminal:
 go build ./cmd/stunc && ./stunc 127.0.0.1
 ```
 
-That's a STUN server answering a STUN client on your own machine: the whole
-tutorial, in two commands.
+That's a STUN server answering a STUN client on your own machine.
 
 ---
 
 **Read the code**
 
-- [`internal/server/ratelimit.go`](../internal/server/ratelimit.go) — the
+- [`internal/server/ratelimit.go`](../internal/server/ratelimit.go): the
   per-IP token bucket.
-- [`internal/server/metrics.go`](../internal/server/metrics.go) — the
+- [`internal/server/metrics.go`](../internal/server/metrics.go): the
   per-transport counters and the Prometheus endpoint.
-- [`cmd/stund/reload.go`](../cmd/stund/reload.go) — hot certificate reload.
-- [`cmd/stund/main.go`](../cmd/stund/main.go) — flags, listener setup, and the
+- [`cmd/stund/reload.go`](../cmd/stund/reload.go): hot certificate reload.
+- [`cmd/stund/main.go`](../cmd/stund/main.go): flags, listener setup, and the
   shutdown handler that ties it together.
-- [`deploy/`](../deploy/) and [`.goreleaser.yaml`](../.goreleaser.yaml) —
+- [`deploy/`](../deploy/) and [`.goreleaser.yaml`](../.goreleaser.yaml):
   Docker, systemd, DNS, and release packaging.
 
 ---

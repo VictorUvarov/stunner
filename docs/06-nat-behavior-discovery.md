@@ -23,10 +23,9 @@ reply from a brand-new IP:port reaches the client, the client's NAT must be
 permissive; if it's dropped, the NAT is strict. The pattern of what gets
 through tells the client exactly how its NAT filters and maps.
 
-This is the one place the chapter-3 rule ("always reply from the socket you
-received on") is deliberately broken. And it's not really an exception,
-because the client *asks* for the reply to come from elsewhere. That's the
-whole point of the measurement.
+This is the one place the server breaks the chapter 3 rule ("always reply from
+the socket you received on"), and it does so only because the client asks for
+the reply to come from elsewhere.
 
 ## Four sockets
 
@@ -53,28 +52,28 @@ err := d.Serve()   // blocks; d.Close() ends it
 
 ## The five attributes
 
-Discovery adds five attributes to the vocabulary. Three are the server telling
-the client where things are; two are the client asking the server to do
+Discovery adds five attributes to the vocabulary. Two are the server telling
+the client where things are; three are the client asking the server to do
 something.
 
 The server reports:
 
-- **RESPONSE-ORIGIN** — "this reply came from *this* address." Lets the client
+- **RESPONSE-ORIGIN**: "this reply came from *this* address." Lets the client
   confirm which socket answered.
-- **OTHER-ADDRESS** — "here's the other IP:port you could probe," the
+- **OTHER-ADDRESS**: "here's the other IP:port you could probe," the
   diagonal socket, the one differing in both IP and port. This is the client's
   map to the rest of the grid.
 
 The client requests:
 
-- **CHANGE-REQUEST** — "reply from the other IP, or the other port, or both."
+- **CHANGE-REQUEST**: "reply from the other IP, or the other port, or both."
   This is the core probe. Internally it just flips which of the four sockets
   sends the answer, following RFC 5780 §6.1's Table 1.
-- **RESPONSE-PORT** — "send the reply to *this* port instead of the one I sent
+- **RESPONSE-PORT**: "send the reply to *this* port instead of the one I sent
   from." Used to measure how long a NAT keeps a mapping alive: the client can
   receive the answer on a fresh port without sending traffic on the port being
   timed, so the measurement doesn't disturb what it's measuring.
-- **PADDING** — "pad your reply with this many junk bytes." Used to force the
+- **PADDING**: "pad your reply with this many junk bytes." Used to force the
   response past the path's MTU so the client learns whether its NAT passes
   fragmented IP packets. The server sizes the padding to the outgoing
   interface's MTU, as the RFC recommends.
@@ -87,14 +86,14 @@ the XOR-MAPPED-ADDRESS, because RFC 5780 requires it.
 Redirecting replies is exactly the reflection risk from chapter 3, so
 discovery draws its lines carefully:
 
-- **Error responses always go back to the true source**, out the socket that
+- Error responses always go back to the true source, out the socket that
   received the request. Only *success* responses honor a RESPONSE-PORT
   redirect. That way a malformed or unauthorized request can never aim even a
   small reply at a port its sender doesn't actually hold.
-- **PADDING and RESPONSE-PORT together draw a 400.** A padded reply redirected
-  to a port nobody is reading couldn't be observed anyway, so the combination
-  is rejected rather than serviced pointlessly.
-- **On a single-IP server, CHANGE-REQUEST draws a 420.** Without a second IP
+- PADDING and RESPONSE-PORT together draw a 400. A padded reply redirected
+  to a port nobody is reading couldn't be observed anyway, so the server
+  rejects the combination.
+- On a single-IP server, CHANGE-REQUEST draws a 420. Without a second IP
   the server can't honor "reply from the other address," and
   comprehension-required attributes it can't satisfy get the honest 420 from
   chapter 3. So a client's discovery probe degrades gracefully into "this
@@ -117,12 +116,12 @@ protocol entirely.
 
 **Read the code**
 
-- [`internal/server/discovery.go`](../internal/server/discovery.go) —
+- [`internal/server/discovery.go`](../internal/server/discovery.go):
   `ListenDiscovery`, the four-socket topology, and the CHANGE-REQUEST /
   RESPONSE-PORT / PADDING handling.
-- [`internal/server/README.md`](../internal/server/README.md) — the "NAT
+- [`internal/server/README.md`](../internal/server/README.md): the "NAT
   behavior discovery" section, with the attribute list.
-- [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780) — the extension in
+- [RFC 5780](https://datatracker.ietf.org/doc/html/rfc5780): the extension in
   full; §6.1 Table 1 is the CHANGE-REQUEST socket-selection logic.
 
 ---

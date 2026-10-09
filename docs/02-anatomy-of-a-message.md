@@ -1,19 +1,18 @@
 # Chapter 2: Anatomy of a STUN message
 
 In chapter 1 the client asked "what's my address?" and the server answered.
-Now let's open the envelope. Both the question and the answer are STUN
-messages, and they share one format. Learn it once and you can read every
-packet in the protocol.
+This chapter opens the envelope. The question and the answer are both STUN
+messages and share one format, so once you learn it you can read every packet
+in the protocol.
 
 A STUN message has two parts: a fixed **20-byte header**, followed by zero or
-more **attributes**. That's it. The header is always the same shape; the
-attributes are where the variety lives.
+more **attributes**. The header is always the same shape; the attributes are
+where the variety lives.
 
 In this codebase, one package owns this format and nothing else:
 [`internal/stunmsg`](../internal/stunmsg/). It turns raw bytes into a Go
-`Message` and back. No sockets, no state: bytes in, `Message` out. Keeping it
-that pure is what makes it easy to test against the official examples, which
-we'll get to at the end.
+`Message` and back. It has no sockets and no state, which makes it easy to test
+against the official examples covered at the end of this chapter.
 
 ## The 20-byte header
 
@@ -35,24 +34,23 @@ Every message starts with the same twenty bytes:
 
 Four fields:
 
-- **Message type** (2 bytes) — what kind of message this is. "Binding
+- **Message type** (2 bytes): what kind of message this is. "Binding
   Request," "Binding Success Response," and so on. The top two bits are always
   zero, which is the first thing a receiver checks to weed out non-STUN traffic.
-- **Message length** (2 bytes) — how many bytes of attributes follow the
+- **Message length** (2 bytes): how many bytes of attributes follow the
   header. The header itself doesn't count.
-- **Magic cookie** (4 bytes) — the constant `0x2112A442`. Always these exact
+- **Magic cookie** (4 bytes): the constant `0x2112A442`. Always these exact
   bytes. It's a fixed marker that says "this is modern STUN."
-- **Transaction ID** (12 bytes) — a random number the client picks. The server
+- **Transaction ID** (12 bytes): a random number the client picks. The server
   copies it into the reply unchanged, so the client can match an answer to the
   question it asked. If you have three requests in flight, the transaction ID
   is how you tell the three answers apart.
 
-The magic cookie earns a second look. Why bake a constant into every message?
-Because STUN often shares a UDP port with other protocols, and a receiver needs
-a fast way to guess "is this even STUN?" before spending effort parsing it. The
-cookie is that guess. (There's a wrinkle here for the 2003 version of the
-protocol, which predates the cookie (chapter 7 covers it). For now, assume the
-cookie is always present.)
+Why put a constant in every message? STUN often shares a UDP port with other
+protocols, and a receiver needs a fast way to guess "is this even STUN?" before
+spending effort parsing it. The cookie is that guess. (The 2003 version of the
+protocol predates the cookie; chapter 7 covers it. For now, assume the cookie
+is always present.)
 
 ## Attributes: the payload
 
@@ -97,21 +95,17 @@ structs. Most of them this server never touches, so they stay as opaque bytes.
 
 ## Why the address is scrambled: XOR-MAPPED-ADDRESS
 
-When the server reports your address, it doesn't write it plainly. It writes it **XORed** with the magic
-cookie. (For IPv6, it XORs with the cookie followed by the transaction ID.)
-The attribute is literally named for this: *XOR*-MAPPED-ADDRESS.
+When the server reports your address, it doesn't write it plainly. It writes
+it **XORed** with the magic cookie. (For IPv6, it XORs with the cookie followed
+by the transaction ID.) The attribute is named for this: *XOR*-MAPPED-ADDRESS.
 
-Why bother? Not for secrecy. XOR against a known constant hides nothing from
-anyone who wants to look. The reason is stranger and more practical. Some older
-NAT routers were "helpful": they scanned every packet passing through for
-anything that looked like their own IP address, and rewrote it, assuming it
-was a mistake. That would corrupt the very answer STUN is trying to deliver. By
-scrambling the address, STUN makes sure it doesn't appear verbatim in the
-packet, so a meddling NAT leaves it alone. The client unscrambles it on
-arrival.
-
-So the XOR isn't encryption. It's camouflage against well-meaning routers. Keep
-that straight and the name stops being confusing.
+XOR against a known constant hides nothing from anyone who wants to look, so
+the point can't be secrecy. Some older NAT routers were "helpful": they scanned
+every packet passing through for anything that looked like their own IP
+address, and rewrote it, assuming it was a mistake. That would corrupt the very
+answer STUN is trying to deliver. Scrambling the address keeps it from
+appearing verbatim in the packet, so a meddling NAT leaves it alone, and the
+client unscrambles it on arrival.
 
 ## FINGERPRINT: "yes, this really is STUN"
 
@@ -160,14 +154,14 @@ like.
 
 **Read the code**
 
-- [`internal/stunmsg/stunmsg.go`](../internal/stunmsg/stunmsg.go) — the
+- [`internal/stunmsg/stunmsg.go`](../internal/stunmsg/stunmsg.go): the
   `Message` type, `Parse`, `Marshal`, and the attribute accessors.
-- [`internal/stunmsg/integrity.go`](../internal/stunmsg/integrity.go) — the
+- [`internal/stunmsg/integrity.go`](../internal/stunmsg/integrity.go): the
   authentication attributes (chapter 5 returns to these).
-- [`internal/stunmsg/README.md`](../internal/stunmsg/README.md) — the same wire
+- [`internal/stunmsg/README.md`](../internal/stunmsg/README.md): the same wire
   format as a reference, with the gotchas listed.
 - The RFC 5769 vector tests and the two fuzz targets live beside the code in
-  `internal/stunmsg/` — grep for `FuzzParse` and `FuzzBuild`.
+  `internal/stunmsg/`; grep for `FuzzParse` and `FuzzBuild`.
 
 ---
 

@@ -25,7 +25,7 @@ server.Alternate = &server.AlternateServer{
 }
 ```
 
-Three details make it correct rather than merely functional:
+Three details keep it correct:
 
 - **Per address family.** The RFC requires the alternate to match the client's
   IP family. You can't send an IPv6 client to an IPv4 address. So targets are
@@ -42,14 +42,14 @@ Three details make it correct rather than merely functional:
   to a different server would break the measurement. Discovery ignores the
   redirect setting entirely.
 
-On the client side, following a redirect is a decision, not a reflex, because
+On the client side, following a redirect should be a deliberate choice, because
 over TLS or DTLS the ALTERNATE-DOMAIN has to be validated against the new
 server's certificate before you trust it. Chapter 8 shows how the client
 surfaces that choice to its caller.
 
 ## Classic clients: RFC 3489 backwards compatibility
 
-Now the time machine. STUN was first defined in 2003 by
+STUN was first defined in 2003 by
 [RFC 3489](https://datatracker.ietf.org/doc/html/rfc3489), "classic STUN."
 That version had **no magic cookie**. The four bytes that chapter 2 called the
 magic cookie were, back then, just the first four bytes of a 128-bit
@@ -73,7 +73,7 @@ attribute padding:
   RFC 3489, and a classic parser rejects any message carrying a mandatory
   attribute it doesn't recognize. So a classic client gets its address in the
   clear.
-- **The full 128-bit transaction ID echoed** — including the four bytes where a
+- **The full 128-bit transaction ID echoed**, including the four bytes where a
   modern message would put the cookie.
 - **No SOFTWARE or FINGERPRINT, space-padded error reasons, even-count
   UNKNOWN-ATTRIBUTES lists.** Because classic STUN has no attribute padding,
@@ -97,8 +97,7 @@ modern construction site kept working untouched; a non-zero value is echoed
 verbatim as a classic ID. The two alignment rules (space-padding, even-count
 lists) live in the codec, switched on by that same field.
 
-There's one real cost, straight from the spec, and it's worth understanding.
-Once the parser accepts cookie-less messages, the magic cookie can no longer
+The spec names one real cost. Once the parser accepts cookie-less messages, the magic cookie can no longer
 screen out non-STUN traffic, which is exactly why RFC 5389 forbids combining
 3489 compatibility with multiplexing STUN alongside another protocol on a
 shared port. A standalone STUN server doesn't multiplex, so it can pay this
@@ -106,9 +105,8 @@ cost. A server sharing a port couldn't.
 
 ## Where this is going
 
-That completes the server: every question it answers, every way it declines,
-and every client generation it speaks to. The next chapter switches sides. We
-look at the *client* (the code that asks the question) where the interesting
+That covers everything the server does. The next chapter switches to the
+*client*, the code that asks the question, where the interesting
 problems are the ones the server never has to face: what to do when your packet
 gets lost, and how to run the authentication dance from chapter 5 in reverse.
 
@@ -116,12 +114,12 @@ gets lost, and how to run the authentication dance from chapter 5 in reverse.
 
 **Read the code**
 
-- [`internal/server/alternate.go`](../internal/server/alternate.go) — the
+- [`internal/server/alternate.go`](../internal/server/alternate.go): the
   `AlternateServer` config and the 300 redirect logic.
 - [`internal/server/server.go`](../internal/server/server.go) and
-  [`internal/stunmsg/stunmsg.go`](../internal/stunmsg/stunmsg.go) — classic
+  [`internal/stunmsg/stunmsg.go`](../internal/stunmsg/stunmsg.go): classic
   detection via `Cookie` / `Classic()`, and the classic wire alignment.
-- [`internal/server/README.md`](../internal/server/README.md) — the "Redirects"
+- [`internal/server/README.md`](../internal/server/README.md): the "Redirects"
   and "Classic clients" sections.
 
 ---

@@ -11,7 +11,7 @@ own app's users should get answers. STUN's answer is **long-term credentials**
 username and password, shared in advance, proven on every request without ever
 sending the password over the wire. It's the most intricate part of the
 protocol, and it's where the wire format from chapter 2 finally gets a full
-workout. In this codebase it's opt-in, off by default, and lives in
+workout. In this codebase it's off by default and lives in
 [`internal/server/auth.go`](../internal/server/auth.go).
 
 ## The problem authentication has to solve
@@ -19,14 +19,14 @@ workout. In this codebase it's opt-in, off by default, and lives in
 You can't just send a password in a STUN attribute. Anyone watching the network
 would read it. And you can't rely on the transport being encrypted, because
 plain UDP STUN isn't. So the protocol borrows the classic trick from HTTP
-digest auth: **prove you know the password without transmitting it.**
+digest auth: prove you know the password without transmitting it.
 
 The tool for that is an HMAC: a keyed checksum. The client computes a checksum
 over its whole message, keyed by (a hash of) the password, and attaches it as a
 **MESSAGE-INTEGRITY** attribute. The server, which also knows the password,
-recomputes the same checksum. If they match, the client must know the password
-, and as a bonus, the checksum also proves the message wasn't tampered with in
-transit. The password itself never appears on the wire.
+recomputes the same checksum. If they match, the client must know the password,
+and the checksum also proves the message wasn't tampered with in transit. The
+password itself never appears on the wire.
 
 ## The challenge/response dance
 
@@ -34,16 +34,16 @@ There's a chicken-and-egg problem: the client's first request can't include a
 valid HMAC, because it doesn't yet know some things the server will demand
 (chiefly a nonce). So authentication is a two-round-trip conversation:
 
-1. **Client sends a plain Binding Request** (no auth).
-2. **Server replies 401 (Unauthorized)**, and the 401 carries what the client
-   needs to try again: a **REALM** (which password set to use, think of it as
-   naming the login domain), a **NONCE** (a one-time-ish value that stops
-   replay), and a **PASSWORD-ALGORITHMS** list (which hash functions the server
-   accepts, SHA-256 preferred, MD5 offered for legacy clients).
-3. **Client retries**, now including USERNAME, REALM, NONCE, its choice of
+1. The client sends a plain Binding Request with no auth.
+2. The server replies 401 (Unauthorized), and the 401 carries what the client
+   needs to try again: a REALM (which password set to use; think of it as
+   naming the login domain), a NONCE (a one-time-ish value that stops
+   replay), and a PASSWORD-ALGORITHMS list (which hash functions the server
+   accepts, with SHA-256 preferred and MD5 offered for legacy clients).
+3. The client retries, now including USERNAME, REALM, NONCE, its choice of
    algorithm, and a MESSAGE-INTEGRITY HMAC keyed by
    `hash(username:realm:password)`.
-4. **Server verifies the HMAC.** If it matches, the client gets its Binding
+4. The server verifies the HMAC. If it matches, the client gets its Binding
    Success Response, signed with the server's own MESSAGE-INTEGRITY, so the
    client knows the *answer* is authentic too.
 
@@ -57,15 +57,14 @@ checks things in is dictated by the spec:
 | Everything valid but the nonce has expired | 438 (Stale Nonce), with a fresh one |
 | The HMAC doesn't match (wrong password) | 401 |
 
-There's a subtlety in that ordering worth calling out, because it's easy to get
-backwards: a stale nonce (438) is only reported *after* the credentials
-otherwise check out. You don't tell an attacker "your nonce is stale" (and
-thereby confirm the rest was right) until they've proven they know the
-password. Get that order wrong and you leak information.
+The ordering is easy to get backwards: a stale nonce (438) is only reported
+*after* the credentials otherwise check out. Telling an attacker "your nonce is
+stale" confirms the rest was right, so the server doesn't say it until they've
+proven they know the password.
 
 ## The append attack, and why trailing attributes are dropped
 
-Here's an attack the naive implementation is wide open to. The MESSAGE-INTEGRITY
+A naive implementation is wide open to an append attack. The MESSAGE-INTEGRITY
 HMAC only covers the bytes *before* it. Anything after it in the message is
 unsigned. So an attacker who captures a validly-signed request can *append*
 extra attributes to it, and the signature still verifies, because the HMAC
@@ -82,9 +81,8 @@ this by ruling that a receiver must **ignore everything after
 MESSAGE-INTEGRITY** (except a trailing FINGERPRINT, which is allowed to come
 last). This code does it centrally with `stunmsg.TrimAfterIntegrity`, applied
 in the shared `validate` path so every transport and both usages inherit it.
-Nothing unauthenticated after the signature can influence anything. This was
-one of two gaps found during the conformance sweep. Before the fix, appended
-junk drew a 420 instead of being quietly dropped.
+This was one of two gaps found during the conformance sweep. Before the fix,
+appended junk drew a 420 instead of being dropped.
 
 ## Stopping the downgrade: the nonce cookie
 
@@ -100,8 +98,7 @@ string `obMatJos2`) followed by encoded **security-feature bits** that record
 which features (password-algorithm negotiation, username anonymity) the server
 advertised. Those bits are baked into the nonce, and the nonce is echoed back
 by the client. If an attacker tampers with the advertised algorithms, the bits
-no longer match the nonce, and the exchange dies with a 438. The negotiation
-can't be quietly rewritten.
+no longer match the nonce, and the exchange dies with a 438.
 
 Implementing this surfaced two *verified errata* in the RFC itself, both
 encoded in the tests: erratum 6290 (the feature bit numbering runs right-to-
@@ -121,8 +118,8 @@ wire, and the lookup is still a fast map hit.
 
 ## Comparing strings that came from humans: OpaqueString
 
-One quietly hard problem: usernames and passwords are Unicode, and Unicode has
-many ways to write what looks like the same string. If one side's password is
+Usernames and passwords are Unicode, and Unicode has many ways to write what
+looks like the same string. If one side's password is
 stored one way and typed another (different normalization, a stray non-
 printing character), the HMAC won't match even though the human "got it right."
 
@@ -138,7 +135,7 @@ the raw passwords are discarded after setup.
 ## Nonces with no memory
 
 You'd expect the server to store the nonces it issues, so it can recognize them
-later. This one doesn't store any — and that's a feature.
+later. This one doesn't store any, on purpose.
 
 A stored-nonce table is something an attacker can flood: request a million
 nonces and watch the server's memory climb. Instead, this server makes its
@@ -151,35 +148,33 @@ flooded because there is no nonce table, and a server restart costs clients
 exactly one extra 438 round trip (the old secret is gone, so old nonces stop
 verifying). The lifetime is five minutes.
 
-This is the same stateless philosophy from chapter 1, applied to security:
-push the state into the token itself and there's nothing to store, drain, or
-overflow.
+This is chapter 1's statelessness applied to security: the state lives in the
+token itself, so the server has nothing to store or overflow.
 
 ## Where this is going
 
-That's the door and its lock. The response, by the way, is signed with the same
+The response is signed with the same
 algorithm variant the client used (SHA-256 for a modern client that
 negotiated, legacy MESSAGE-INTEGRITY otherwise), and it even accepts truncated
 SHA-256 HMACs down to 16 bytes, as §14.6 allows, while always sending the full
 length itself.
 
-So far the server has answered "what is my address?" The next chapter is about
-a richer question a client can ask: not just *what* its address is, but *how*
-its NAT behaves: information it needs to predict whether a direct
-peer-to-peer connection will actually work.
+So far the server has answered "what is my address?" The next chapter covers a
+richer question a client can ask: how its NAT behaves, which predicts whether a
+direct peer-to-peer connection will work.
 
 ---
 
 **Read the code**
 
-- [`internal/server/auth.go`](../internal/server/auth.go) — `NewAuth`, the
+- [`internal/server/auth.go`](../internal/server/auth.go): `NewAuth`, the
   challenge/response flow, the error-code mapping, and stateless nonces.
-- [`internal/stunmsg/integrity.go`](../internal/stunmsg/integrity.go) —
+- [`internal/stunmsg/integrity.go`](../internal/stunmsg/integrity.go):
   `LongTermKey`, the HMAC add/verify helpers, USERHASH, the PASSWORD-ALGORITHMS
   codec, and `TrimAfterIntegrity`.
-- [`internal/server/README.md`](../internal/server/README.md) — the
+- [`internal/server/README.md`](../internal/server/README.md): the
   "Authentication (opt-in)" section restates this as reference.
-- [RFC 8489 §9.2](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2) —
+- [RFC 8489 §9.2](https://datatracker.ietf.org/doc/html/rfc8489#section-9.2):
   the authoritative flow.
 
 ---
